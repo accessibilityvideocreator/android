@@ -1,11 +1,16 @@
 import 'dart:async';
-import 'dart:io' show Platform;
+import 'dart:io' show Platform, File;
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:open_filex/open_filex.dart';
+import 'video_creator_channel.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'language_helper.dart'; // Import the facade
+import 'elevenlabs_service.dart';
 
 void main() => runApp(const MyApp());
 
@@ -39,6 +44,15 @@ class MyAppState extends State<MyApp> {
   String? _newVoiceText;
   int? _inputLength;
 
+  bool _isCreatingVideo = false;
+  String? _videoFilePath;
+
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+
+  // ElevenLabs settings
+  String _elApiKey = '';
+  String _elVoiceId = ElevenLabsService.defaultVoiceId;
+
   TtsState ttsState = TtsState.stopped;
 
   bool get isPlaying => ttsState == TtsState.playing;
@@ -58,6 +72,26 @@ class MyAppState extends State<MyApp> {
     initTts();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _getDefaults(); // invoked after initial build of context is complete
+    });
+    _loadElSettings();
+  }
+
+  Future<void> _loadElSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _elApiKey = prefs.getString('el_api_key') ?? '';
+      _elVoiceId = prefs.getString('el_voice_id') ??
+          ElevenLabsService.defaultVoiceId;
+    });
+  }
+
+  Future<void> _saveElSettings(String apiKey, String voiceId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('el_api_key', apiKey);
+    await prefs.setString('el_voice_id', voiceId);
+    setState(() {
+      _elApiKey = apiKey;
+      _elVoiceId = voiceId;
     });
   }
 
@@ -359,6 +393,180 @@ class MyAppState extends State<MyApp> {
     });
   }
 
+  Future<void> _openElSettings() async {
+    final keyCtrl =
+        TextEditingController(text: _elApiKey);
+    final voiceCtrl =
+        TextEditingController(text: _elVoiceId);
+
+    await showModalBottomSheet(
+      context: _navigatorKey.currentContext!,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(
+          left: 24,
+          right: 24,
+          top: 24,
+          bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('ElevenLabs Settings',
+                style: TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            const Text(
+              'Get your API key at elevenlabs.io → Profile → API Keys',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: keyCtrl,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'API Key',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.key),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: voiceCtrl,
+              decoration: InputDecoration(
+                labelText: 'Voice ID',
+                border: const OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.record_voice_over),
+                helperText:
+                    'Default: Rachel (${ElevenLabsService.defaultVoiceId})',
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () {
+                  final key = keyCtrl.text.trim();
+                  final voice = voiceCtrl.text.trim().isEmpty
+                      ? ElevenLabsService.defaultVoiceId
+                      : voiceCtrl.text.trim();
+                  _saveElSettings(key, voice);
+                  Navigator.pop(ctx);
+                  _showSnack(key.isEmpty
+                      ? 'API key cleared — using device TTS'
+                      : 'ElevenLabs key saved ✓');
+                },
+                child: const Text('Save'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showSnack(String msg) {
+    final ctx = _navigatorKey.currentContext;
+    if (ctx == null) return;
+    ScaffoldMessenger.of(ctx)
+        .showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  String _wrapText(String text, int maxWidth) {
+    final words = text.trim().split(RegExp(r'\s+'));
+    final lines = <String>[];
+    var line = '';
+    for (final w in words) {
+      if (line.isEmpty) {
+        line = w;
+      } else if (line.length + 1 + w.length <= maxWidth) {
+        line += ' $w';
+      } else {
+        lines.add(line);
+        line = w;
+      }
+    }
+    if (line.isNotEmpty) lines.add(line);
+    if (lines.length > 10) {
+      return '${lines.take(9).join('\n')}\n...';
+    }
+    return lines.join('\n');
+  }
+
+Future<void> _createVideo() async {
+    if (_newVoiceText == null || _newVoiceText!.trim().isEmpty) return;
+
+    setState(() {
+      _isCreatingVideo = true;
+      _videoFilePath = null;
+    });
+
+    try {
+      // Step 1: Synthesize TTS to an audio file
+      final tempDir = await getTemporaryDirectory();
+      final audioPath = '${tempDir.path}/tts_audio.mp3';
+      final audioFile = File(audioPath);
+      if (await audioFile.exists()) await audioFile.delete();
+
+      // Use ElevenLabs if key is set, otherwise fall back to device TTS
+      debugPrint('EL key length: ${_elApiKey.length}, voiceId: $_elVoiceId');
+      if (_elApiKey.isNotEmpty) {
+        _showSnack('Generating audio with ElevenLabs...');
+        debugPrint('Calling ElevenLabs API...');
+        final el = ElevenLabsService(
+            apiKey: _elApiKey, voiceId: _elVoiceId);
+        await el.synthesizeToFile(_newVoiceText!, audioPath);
+        debugPrint('ElevenLabs done. File exists: ${await audioFile.exists()}, size: ${await audioFile.exists() ? await audioFile.length() : 0}');
+      } else {
+        _showSnack('Generating audio with device TTS...');
+        await flutterTts.setVolume(volume);
+        await flutterTts.setSpeechRate(rate);
+        await flutterTts.setPitch(pitch);
+        await flutterTts.synthesizeToFile(_newVoiceText!, audioPath);
+
+        // Poll until the audio file appears (up to 30 seconds)
+        bool audioReady = false;
+        for (int i = 0; i < 150; i++) {
+          await Future.delayed(const Duration(milliseconds: 200));
+          if (await audioFile.exists() && await audioFile.length() > 1024) {
+            audioReady = true;
+            break;
+          }
+        }
+        if (!audioReady) {
+          _showSnack('Audio synthesis timed out');
+          return;
+        }
+      }
+
+      // Step 2: Create output path in app external storage
+      final extDir = await getExternalStorageDirectory();
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final videoPath = '${extDir!.path}/tts_$timestamp.mp4';
+
+      // Step 3: Create video using native Android MediaMuxer
+      _showSnack('Encoding video...');
+      await VideoCreatorChannel.createVideo(
+        audioPath: audioPath,
+        videoPath: videoPath,
+        text: _newVoiceText!,
+      );
+
+      setState(() => _videoFilePath = videoPath);
+      _showSnack('Video saved! Opening...');
+      await OpenFilex.open(videoPath);
+    } catch (e) {
+      if (kDebugMode) debugPrint('_createVideo error: $e');
+      _showSnack('Error: $e');
+    } finally {
+      setState(() => _isCreatingVideo = false);
+    }
+  }
+
   Future<void> saveToFile(String? text) async {
     if (text == null || text.trim().isEmpty) return;
     // Mangle text to a filename
@@ -376,9 +584,34 @@ class MyAppState extends State<MyApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: _navigatorKey,
       home: Scaffold(
         appBar: AppBar(
           title: const Text('Flutter TTS'),
+          actions: [
+            IconButton(
+              icon: Stack(
+                children: [
+                  const Icon(Icons.settings),
+                  if (_elApiKey.isNotEmpty)
+                    Positioned(
+                      right: 0,
+                      top: 0,
+                      child: Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          color: Colors.green,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              tooltip: 'ElevenLabs Settings',
+              onPressed: _openElSettings,
+            ),
+          ],
         ),
         body: SingleChildScrollView(
           scrollDirection: Axis.vertical,
@@ -386,6 +619,7 @@ class MyAppState extends State<MyApp> {
             children: [
               _inputSection(),
               _btnSection(),
+              if (isAndroid) _videoSection(),
               _engineSection(), // _getEngines
               _voiceSection(), // _getVoices
               _languageSection(), // _getLanguages
@@ -404,6 +638,48 @@ class MyAppState extends State<MyApp> {
                 child: const Icon(Icons.save),
               )
             : null,
+      ),
+    );
+  }
+
+  Widget _videoSection() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 24.0),
+      child: Column(
+        children: [
+          ElevatedButton.icon(
+            icon: _isCreatingVideo
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white),
+                  )
+                : const Icon(Icons.videocam),
+            label: Text(
+                _isCreatingVideo ? 'Creating Video...' : 'Create Video'),
+            onPressed: (_isCreatingVideo ||
+                    _newVoiceText == null ||
+                    _newVoiceText!.trim().isEmpty)
+                ? null
+                : _createVideo,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.deepPurple,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 28, vertical: 12),
+            ),
+          ),
+          if (_videoFilePath != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8.0),
+              child: Text(
+                '✓ Saved: $_videoFilePath',
+                style: const TextStyle(fontSize: 11, color: Colors.green),
+                textAlign: TextAlign.center,
+              ),
+            ),
+        ],
       ),
     );
   }
