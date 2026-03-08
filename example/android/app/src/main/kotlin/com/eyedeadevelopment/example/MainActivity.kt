@@ -1,7 +1,10 @@
 package com.eyedeadevelopment.example
 
+import android.content.ContentValues
+import android.content.Context
 import android.graphics.*
 import android.media.*
+import android.provider.MediaStore
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -24,9 +27,10 @@ class MainActivity : FlutterActivity() {
                     val audioPath = call.argument<String>("audioPath")!!
                     val videoPath = call.argument<String>("videoPath")!!
                     val text      = call.argument<String>("text") ?: ""
+                    val ctx = applicationContext
                     Thread {
                         try {
-                            VideoCreator.create(audioPath, videoPath, text)
+                            VideoCreator.create(ctx, audioPath, videoPath, text)
                             result.success(null)
                         } catch (e: Throwable) {  // catches OOM and all errors
                             result.error("VIDEO_ERROR", "${e.javaClass.simpleName}: ${e.message}", null)
@@ -85,7 +89,7 @@ object VideoCreator {
     )
 
     // ── Public entry point ────────────────────────────────────────────────
-    fun create(audioPath: String, outputPath: String, text: String) {
+    fun create(context: Context, audioPath: String, outputPath: String, text: String) {
 
         // 1. Probe source audio
         val extractor     = MediaExtractor().also { it.setDataSource(audioPath) }
@@ -109,7 +113,9 @@ object VideoCreator {
             extractor.selectTrack(audioTrackIdx)
             val (as2, af) = transcodeAudio(extractor, srcAudioFmt, sampleRate, channelCount)
             extractor.release()
-            muxToFile(outputPath, vs, vf, as2, af); return
+            muxToFile(outputPath, vs, vf, as2, af)
+            setMediaStoreTitle(context, outputPath, "TTS Video")
+            return
         }
 
         val layouts = layoutSentences(sentences, W)
@@ -169,6 +175,9 @@ object VideoCreator {
 
         // 5. Mux
         muxToFile(outputPath, videoSamples, videoFmt, aacSamples, aacFmt)
+
+        // 6. Write a proper title into MediaStore so VLC doesn't show "Unknown"
+        setMediaStoreTitle(context, outputPath, "TTS Video")
     }
 
     // ── Ease-in-out (cosine) ──────────────────────────────────────────────
@@ -311,48 +320,66 @@ object VideoCreator {
         channelCount: Int
     ): Pair<List<Sample>, MediaFormat> {
 
-        // Phase 1: decode ALL compressed audio → raw PCM
-        val decoder = MediaCodec.createDecoderByType(
-            srcFmt.getString(MediaFormat.KEY_MIME)!!)
-        decoder.configure(srcFmt, null, null, 0)
-        decoder.start()
-
+        val mime = srcFmt.getString(MediaFormat.KEY_MIME) ?: ""
         val pcmAccumulator = java.io.ByteArrayOutputStream()
-        var decInputDone   = false
-        var decOutputDone  = false
-        val info           = MediaCodec.BufferInfo()
 
-        while (!decOutputDone) {
-            if (!decInputDone) {
-                val idx = decoder.dequeueInputBuffer(TIMEOUT_US)
-                if (idx >= 0) {
-                    val buf  = decoder.getInputBuffer(idx)!!
-                    buf.clear()
-                    val size = extractor.readSampleData(buf, 0)
-                    if (size < 0) {
-                        decoder.queueInputBuffer(idx, 0, 0, 0,
-                            MediaCodec.BUFFER_FLAG_END_OF_STREAM)
-                        decInputDone = true
-                    } else {
-                        decoder.queueInputBuffer(idx, 0, size,
-                            extractor.sampleTime, 0)
-                        extractor.advance()
+        // Phase 1: get raw PCM bytes.
+        // WAV (audio/raw) is already uncompressed — read directly from extractor.
+        // Everything else (MP3, AAC, etc.) needs a MediaCodec decoder first.
+        if (mime == "audio/raw" || mime == "audio/wav") {
+            // Skip WAV header bytes (44 bytes) — MediaExtractor gives us raw samples
+            val tmpBuf = java.nio.ByteBuffer.allocate(65536)
+            while (true) {
+                tmpBuf.clear()
+                val size = extractor.readSampleData(tmpBuf, 0)
+                if (size < 0) break
+                val bytes = ByteArray(size)
+                tmpBuf.rewind(); tmpBuf.get(bytes)
+                pcmAccumulator.write(bytes)
+                extractor.advance()
+            }
+        } else {
+            // Compressed audio: decode through MediaCodec
+            val decoder = MediaCodec.createDecoderByType(mime)
+            decoder.configure(srcFmt, null, null, 0)
+            decoder.start()
+
+            var decInputDone  = false
+            var decOutputDone = false
+            val info          = MediaCodec.BufferInfo()
+
+            while (!decOutputDone) {
+                if (!decInputDone) {
+                    val idx = decoder.dequeueInputBuffer(TIMEOUT_US)
+                    if (idx >= 0) {
+                        val buf  = decoder.getInputBuffer(idx)!!
+                        buf.clear()
+                        val size = extractor.readSampleData(buf, 0)
+                        if (size < 0) {
+                            decoder.queueInputBuffer(idx, 0, 0, 0,
+                                MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                            decInputDone = true
+                        } else {
+                            decoder.queueInputBuffer(idx, 0, size,
+                                extractor.sampleTime, 0)
+                            extractor.advance()
+                        }
                     }
                 }
-            }
-            val outIdx = decoder.dequeueOutputBuffer(info, TIMEOUT_US)
-            if (outIdx >= 0) {
-                if (info.size > 0) {
-                    val pcm = ByteArray(info.size)
-                    decoder.getOutputBuffer(outIdx)!!.get(pcm)
-                    pcmAccumulator.write(pcm)
+                val outIdx = decoder.dequeueOutputBuffer(info, TIMEOUT_US)
+                if (outIdx >= 0) {
+                    if (info.size > 0) {
+                        val pcm = ByteArray(info.size)
+                        decoder.getOutputBuffer(outIdx)!!.get(pcm)
+                        pcmAccumulator.write(pcm)
+                    }
+                    decoder.releaseOutputBuffer(outIdx, false)
+                    if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0)
+                        decOutputDone = true
                 }
-                decoder.releaseOutputBuffer(outIdx, false)
-                if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0)
-                    decOutputDone = true
             }
+            decoder.stop(); decoder.release()
         }
-        decoder.stop(); decoder.release()
 
         val pcmBytes       = pcmAccumulator.toByteArray()
         val bytesPerSample = 2 * channelCount
@@ -374,6 +401,7 @@ object VideoCreator {
         var pcmOffset     = 0
         var encInputDone  = false
         var encOutputDone = false
+        val info          = MediaCodec.BufferInfo()
 
         while (!encOutputDone) {
             if (!encInputDone) {
@@ -414,6 +442,22 @@ object VideoCreator {
         }
         encoder.stop(); encoder.release()
         return Pair(aacSamples, outFmt!!)
+    }
+
+    // ── Set MediaStore title so players don't show "Unknown" ──────────────
+    private fun setMediaStoreTitle(context: Context, filePath: String, title: String) {
+        try {
+            MediaScannerConnection.scanFile(context, arrayOf(filePath), arrayOf("video/mp4")) { _, uri ->
+                if (uri != null) {
+                    val cv = ContentValues().apply {
+                        put(MediaStore.Video.Media.TITLE, title)
+                        put(MediaStore.Video.Media.ARTIST, "TTS")
+                        put(MediaStore.Video.Media.ALBUM, "TTS Videos")
+                    }
+                    context.contentResolver.update(uri, cv, null, null)
+                }
+            }
+        } catch (_: Exception) { /* non-fatal */ }
     }
 
     // ── Mux helper ────────────────────────────────────────────────────────

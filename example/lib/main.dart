@@ -412,7 +412,7 @@ class MyAppState extends State<MyApp> {
         builder: (ctx, setSheetState) => SingleChildScrollView(
           padding: EdgeInsets.only(
             left: 24, right: 24, top: 24,
-            bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 64, // +40px extra clearance
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -649,6 +649,7 @@ Future<void> _createVideo() async {
 
       setState(() => _videoFilePath = videoPath);
       _showSnack('Video saved! Opening...');
+      await flutterTts.speak('Your video is ready');
       await OpenFilex.open(videoPath);
     } catch (e, stack) {
       if (kDebugMode) debugPrint('_createVideo error: $e\n$stack');
