@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.graphics.*
 import android.media.*
+import android.os.Build
 import android.provider.MediaStore
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -30,10 +31,21 @@ class MainActivity : FlutterActivity() {
                     val ctx = applicationContext
                     Thread {
                         try {
-                            VideoCreator.create(ctx, audioPath, videoPath, text)
-                            result.success(null)
+                            val publicPath = VideoCreator.create(ctx, audioPath, videoPath, text)
+                            result.success(publicPath)   // returns public path or temp path
                         } catch (e: Throwable) {  // catches OOM and all errors
                             result.error("VIDEO_ERROR", "${e.javaClass.simpleName}: ${e.message}", null)
+                        }
+                    }.start()
+                } else if (call.method == "saveAudioToDownloads") {
+                    val audioPath = call.argument<String>("audioPath")!!
+                    val ctx = applicationContext
+                    Thread {
+                        try {
+                            VideoCreator.saveToPublicDownloads(ctx, audioPath)
+                            result.success(null)
+                        } catch (e: Throwable) {
+                            result.error("AUDIO_SAVE_ERROR", "${e.javaClass.simpleName}: ${e.message}", null)
                         }
                     }.start()
                 } else {
@@ -88,8 +100,8 @@ object VideoCreator {
         val centerY: Float         // scroll target: place this at H/2
     )
 
-    // ── Public entry point ────────────────────────────────────────────────
-    fun create(context: Context, audioPath: String, outputPath: String, text: String) {
+    // ── Public entry point — returns the public file path ─────────────────
+    fun create(context: Context, audioPath: String, outputPath: String, text: String): String {
 
         // 1. Probe source audio
         val extractor     = MediaExtractor().also { it.setDataSource(audioPath) }
@@ -114,8 +126,8 @@ object VideoCreator {
             val (as2, af) = transcodeAudio(extractor, srcAudioFmt, sampleRate, channelCount)
             extractor.release()
             muxToFile(outputPath, vs, vf, as2, af)
-            setMediaStoreTitle(context, outputPath, "TTS Video")
-            return
+            val pub1 = saveToPublicMovies(context, outputPath)
+            return pub1 ?: outputPath
         }
 
         val layouts = layoutSentences(sentences, W)
@@ -176,8 +188,9 @@ object VideoCreator {
         // 5. Mux
         muxToFile(outputPath, videoSamples, videoFmt, aacSamples, aacFmt)
 
-        // 6. Write a proper title into MediaStore so VLC doesn't show "Unknown"
-        setMediaStoreTitle(context, outputPath, "TTS Video")
+        // 6. Copy to Movies/TTS Videos/ so it's easy to find; delete temp file
+        val publicPath = saveToPublicMovies(context, outputPath)
+        return publicPath ?: outputPath
     }
 
     // ── Ease-in-out (cosine) ──────────────────────────────────────────────
@@ -444,20 +457,69 @@ object VideoCreator {
         return Pair(aacSamples, outFmt!!)
     }
 
-    // ── Set MediaStore title so players don't show "Unknown" ──────────────
-    private fun setMediaStoreTitle(context: Context, filePath: String, title: String) {
-        try {
-            MediaScannerConnection.scanFile(context, arrayOf(filePath), arrayOf("video/mp4")) { _, uri ->
-                if (uri != null) {
-                    val cv = ContentValues().apply {
-                        put(MediaStore.Video.Media.TITLE, title)
-                        put(MediaStore.Video.Media.ARTIST, "TTS")
-                        put(MediaStore.Video.Media.ALBUM, "TTS Videos")
-                    }
-                    context.contentResolver.update(uri, cv, null, null)
-                }
+    // ── Save to Movies/TTS Videos/ via MediaStore (API 29+) ──────────────
+    // Returns the public file path, or null if it failed.
+    private fun saveToPublicMovies(context: Context, srcPath: String): String? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            // Pre-Android 10: scan the existing file so it shows up in gallery
+            MediaScannerConnection.scanFile(context, arrayOf(srcPath), arrayOf("video/mp4"), null)
+            return srcPath
+        }
+        return try {
+            val timestamp = System.currentTimeMillis()
+            val displayName = "tts_video_$timestamp.mp4"
+            val cv = ContentValues().apply {
+                put(MediaStore.Video.Media.DISPLAY_NAME, displayName)
+                put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+                put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/TTS Videos")
+                put(MediaStore.Video.Media.TITLE, "TTS Video")
+                put(MediaStore.Video.Media.ARTIST, "TTS")
+                put(MediaStore.Video.Media.ALBUM, "TTS Videos")
+                put(MediaStore.Video.Media.IS_PENDING, 1)
             }
-        } catch (_: Exception) { /* non-fatal */ }
+            val resolver = context.contentResolver
+            val uri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, cv) ?: return null
+
+            resolver.openOutputStream(uri)?.use { out ->
+                File(srcPath).inputStream().use { it.copyTo(out) }
+            }
+
+            cv.clear()
+            cv.put(MediaStore.Video.Media.IS_PENDING, 0)
+            resolver.update(uri, cv, null, null)
+
+            // Clean up the temp file now that we've copied it
+            File(srcPath).delete()
+
+            // Return the friendly public path for display
+            "Movies/TTS Videos/$displayName"
+        } catch (e: Exception) {
+            null   // non-fatal — caller falls back to temp path
+        }
+    }
+
+    // ── Save audio to Downloads/TTS Audio/ via MediaStore (API 29+) ───────
+    fun saveToPublicDownloads(context: Context, srcPath: String) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            MediaScannerConnection.scanFile(context, arrayOf(srcPath), arrayOf("audio/mpeg"), null)
+            return
+        }
+        val timestamp = System.currentTimeMillis()
+        val displayName = "tts_audio_$timestamp.mp3"
+        val cv = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, displayName)
+            put(MediaStore.Downloads.MIME_TYPE, "audio/mpeg")
+            put(MediaStore.Downloads.RELATIVE_PATH, "Download/TTS Audio")
+            put(MediaStore.Downloads.IS_PENDING, 1)
+        }
+        val resolver = context.contentResolver
+        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv) ?: return
+        resolver.openOutputStream(uri)?.use { out ->
+            File(srcPath).inputStream().use { it.copyTo(out) }
+        }
+        cv.clear()
+        cv.put(MediaStore.Downloads.IS_PENDING, 0)
+        resolver.update(uri, cv, null, null)
     }
 
     // ── Mux helper ────────────────────────────────────────────────────────

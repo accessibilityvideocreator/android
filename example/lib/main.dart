@@ -641,16 +641,22 @@ Future<void> _createVideo() async {
 
       // Step 3: Create video using native Android MediaMuxer
       _showSnack('Encoding video (this may take a while for long texts)...');
-      await VideoCreatorChannel.createVideo(
+      final publicPath = await VideoCreatorChannel.createVideo(
         audioPath: audioPath,
         videoPath: videoPath,
         text: _newVoiceText!,
       );
 
-      setState(() => _videoFilePath = videoPath);
-      _showSnack('Video saved! Opening...');
+      // publicPath is either "Movies/TTS Videos/filename.mp4" (friendly display)
+      // or the original temp path as fallback
+      final openPath = (publicPath != null && publicPath.startsWith('/'))
+          ? publicPath   // absolute temp path fallback
+          : videoPath;   // open the temp path; MediaStore has the real copy
+
+      setState(() => _videoFilePath = publicPath ?? videoPath);
+      _showSnack('Saved to ${publicPath ?? "storage"}  — opening...');
       await flutterTts.speak('Your video is ready');
-      await OpenFilex.open(videoPath);
+      await OpenFilex.open(openPath);
     } catch (e, stack) {
       if (kDebugMode) debugPrint('_createVideo error: $e\n$stack');
       await _logAndOpenError('_createVideo', e, stack);
@@ -659,18 +665,28 @@ Future<void> _createVideo() async {
     }
   }
 
+  /// Copies the last generated ElevenLabs audio file to Downloads/TTS Audio/
+  /// so it's easy to find. Falls back gracefully if the source doesn't exist.
   Future<void> saveToFile(String? text) async {
-    if (text == null || text.trim().isEmpty) return;
-    // Mangle text to a filename
-    String myText = text.trim();
-    myText = myText.replaceAll(RegExp(r'\s+'), '_'); // one or more spaces
-    myText = myText.replaceAll(RegExp(r'[^\p{L}\p{M}\p{N}_]', unicode: true),
-        ''); // \p{L} for letters, \p{M} for combining marks ("diacritics"), \p{N}
-    myText = myText.substring(0, min(myText.length, 40));
-    if (myText.isEmpty) return;
-    String fileName = isAndroid ? '$myText.mp3' : '$myText.caf';
-    await flutterTts.synthesizeToFile(text, fileName);
-    if (kDebugMode) debugPrint('synthesized to: $fileName');
+    if (!_elApiKey.isNotEmpty || !_useElevenLabs) {
+      _showSnack('Enable ElevenLabs to save audio');
+      return;
+    }
+    try {
+      final extDir = await getExternalStorageDirectory();
+      final storageDir = extDir ?? await getTemporaryDirectory();
+      final audioSrc = File('${storageDir.path}/tts_audio.mp3');
+      if (!await audioSrc.exists()) {
+        _showSnack('No audio found — create a video first');
+        return;
+      }
+
+      // Copy to Downloads/TTS Audio/ using MediaStore channel
+      await VideoCreatorChannel.saveAudioToDownloads(audioSrc.path);
+      _showSnack('Audio saved to Downloads/TTS Audio/');
+    } catch (e, stack) {
+      await _logAndOpenError('saveToFile', e, stack);
+    }
   }
 
   @override
@@ -679,7 +695,8 @@ Future<void> _createVideo() async {
       navigatorKey: _navigatorKey,
       home: Scaffold(
         appBar: AppBar(
-          title: const Text('Flutter TTS'),
+          title: const Text('Copy Paste, Type, Or Dictate Text Below',
+              style: TextStyle(fontSize: 13)),
           actions: [
             IconButton(
               icon: Stack(
