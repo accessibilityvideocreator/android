@@ -13,9 +13,14 @@ class ElevenLabsService {
   final String voiceId;
 
   ElevenLabsService({
-    required this.apiKey,
+    required String apiKey,
     this.voiceId = defaultVoiceId,
-  });
+  }) : apiKey = _sanitize(apiKey);
+
+  /// Strip any characters that are invalid in HTTP header values
+  /// (newlines, carriage returns, tabs, non-ASCII, etc.)
+  static String _sanitize(String key) =>
+      key.replaceAll(RegExp(r'[^\x20-\x7E]'), '').trim();
 
   /// Synthesizes [text] to an MP3 file at [outputPath].
   /// Throws on HTTP error or file I/O failure.

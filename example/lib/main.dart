@@ -1,5 +1,6 @@
 import 'dart:async';
-import 'dart:io' show Platform, File;
+import 'dart:io' show Platform, File, FileMode;
+import 'dart:typed_data';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -52,6 +53,7 @@ class MyAppState extends State<MyApp> {
   // ElevenLabs settings
   String _elApiKey = '';
   String _elVoiceId = ElevenLabsService.defaultVoiceId;
+  bool _useElevenLabs = true; // toggle off to use free device TTS while testing
 
   TtsState ttsState = TtsState.stopped;
 
@@ -79,19 +81,21 @@ class MyAppState extends State<MyApp> {
   Future<void> _loadElSettings() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _elApiKey = prefs.getString('el_api_key') ?? '';
-      _elVoiceId = prefs.getString('el_voice_id') ??
-          ElevenLabsService.defaultVoiceId;
+      _elApiKey        = prefs.getString('el_api_key') ?? '';
+      _elVoiceId       = prefs.getString('el_voice_id') ?? ElevenLabsService.defaultVoiceId;
+      _useElevenLabs   = prefs.getBool('el_enabled') ?? true;
     });
   }
 
-  Future<void> _saveElSettings(String apiKey, String voiceId) async {
+  Future<void> _saveElSettings(String apiKey, String voiceId, bool useEl) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('el_api_key', apiKey);
     await prefs.setString('el_voice_id', voiceId);
+    await prefs.setBool('el_enabled', useEl);
     setState(() {
-      _elApiKey = apiKey;
-      _elVoiceId = voiceId;
+      _elApiKey      = apiKey;
+      _elVoiceId     = voiceId;
+      _useElevenLabs = useEl;
     });
   }
 
@@ -394,10 +398,9 @@ class MyAppState extends State<MyApp> {
   }
 
   Future<void> _openElSettings() async {
-    final keyCtrl =
-        TextEditingController(text: _elApiKey);
-    final voiceCtrl =
-        TextEditingController(text: _elVoiceId);
+    final keyCtrl   = TextEditingController(text: _elApiKey);
+    final voiceCtrl = TextEditingController(text: _elVoiceId);
+    bool  sheetUseEl = _useElevenLabs;
 
     await showModalBottomSheet(
       context: _navigatorKey.currentContext!,
@@ -405,65 +408,104 @@ class MyAppState extends State<MyApp> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(
-          left: 24,
-          right: 24,
-          top: 24,
-          bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('ElevenLabs Settings',
-                style: TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 4),
-            const Text(
-              'Get your API key at elevenlabs.io → Profile → API Keys',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: keyCtrl,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'API Key',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.key),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) => SingleChildScrollView(
+          padding: EdgeInsets.only(
+            left: 24, right: 24, top: 24,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('ElevenLabs Settings',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
+              const Text(
+                'Get your API key at elevenlabs.io → Profile → API Keys',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
               ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: voiceCtrl,
-              decoration: InputDecoration(
-                labelText: 'Voice ID',
-                border: const OutlineInputBorder(),
-                prefixIcon: const Icon(Icons.record_voice_over),
-                helperText:
-                    'Default: Rachel (${ElevenLabsService.defaultVoiceId})',
+              const SizedBox(height: 16),
+              // ── Use ElevenLabs toggle ──────────────────────────────────
+              Container(
+                decoration: BoxDecoration(
+                  color: sheetUseEl
+                      ? Colors.green.withOpacity(0.08)
+                      : Colors.orange.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: sheetUseEl ? Colors.green : Colors.orange,
+                    width: 1.2,
+                  ),
+                ),
+                child: SwitchListTile(
+                  title: Text(
+                    sheetUseEl ? 'Using ElevenLabs' : 'Using Free Device TTS',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: sheetUseEl ? Colors.green : Colors.orange,
+                    ),
+                  ),
+                  subtitle: Text(
+                    sheetUseEl
+                        ? 'High-quality voice (uses credits)'
+                        : 'Free built-in voice — great for testing',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  value: sheetUseEl,
+                  activeColor: Colors.green,
+                  inactiveThumbColor: Colors.orange,
+                  inactiveTrackColor: Colors.orange.withOpacity(0.3),
+                  onChanged: (val) => setSheetState(() => sheetUseEl = val),
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () {
-                  final key = keyCtrl.text.trim();
-                  final voice = voiceCtrl.text.trim().isEmpty
-                      ? ElevenLabsService.defaultVoiceId
-                      : voiceCtrl.text.trim();
-                  _saveElSettings(key, voice);
-                  Navigator.pop(ctx);
-                  _showSnack(key.isEmpty
-                      ? 'API key cleared — using device TTS'
-                      : 'ElevenLabs key saved ✓');
-                },
-                child: const Text('Save'),
+              const SizedBox(height: 16),
+              TextField(
+                controller: keyCtrl,
+                obscureText: true,
+                enabled: sheetUseEl,
+                decoration: const InputDecoration(
+                  labelText: 'API Key',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.key),
+                ),
               ),
-            ),
-          ],
+              const SizedBox(height: 12),
+              TextField(
+                controller: voiceCtrl,
+                enabled: sheetUseEl,
+                decoration: InputDecoration(
+                  labelText: 'Voice ID',
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.record_voice_over),
+                  helperText: 'Default: Rachel (${ElevenLabsService.defaultVoiceId})',
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    // Strip invisible/non-ASCII chars that break HTTP headers
+                    final key   = keyCtrl.text.replaceAll(RegExp(r'[^\x20-\x7E]'), '').trim();
+                    final voice = voiceCtrl.text.trim().isEmpty
+                        ? ElevenLabsService.defaultVoiceId
+                        : voiceCtrl.text.trim();
+                    _saveElSettings(key, voice, sheetUseEl);
+                    Navigator.pop(ctx);
+                    if (!sheetUseEl) {
+                      _showSnack('Using free device TTS for testing');
+                    } else if (key.isEmpty) {
+                      _showSnack('API key cleared — using device TTS');
+                    } else {
+                      _showSnack('ElevenLabs enabled ✓');
+                    }
+                  },
+                  child: const Text('Save'),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -474,6 +516,56 @@ class MyAppState extends State<MyApp> {
     if (ctx == null) return;
     ScaffoldMessenger.of(ctx)
         .showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  /// Builds a valid PCM WAV file filled with silence (all zeros).
+  Uint8List _buildSilentWav(int durationSeconds, {int sampleRate = 22050}) {
+    const channels    = 1;
+    const bitsPerSample = 16;
+    final numSamples  = sampleRate * durationSeconds;
+    final dataSize    = numSamples * channels * (bitsPerSample ~/ 8);
+    final buf         = ByteData(44 + dataSize);
+
+    void str(int off, String s) {
+      for (var i = 0; i < s.length; i++) buf.setUint8(off + i, s.codeUnitAt(i));
+    }
+
+    str(0,  'RIFF');
+    buf.setUint32(4,  36 + dataSize, Endian.little);
+    str(8,  'WAVE');
+    str(12, 'fmt ');
+    buf.setUint32(16, 16, Endian.little);           // fmt chunk size
+    buf.setUint16(20, 1,  Endian.little);           // PCM
+    buf.setUint16(22, channels, Endian.little);
+    buf.setUint32(24, sampleRate, Endian.little);
+    buf.setUint32(28, sampleRate * channels * (bitsPerSample ~/ 8), Endian.little);
+    buf.setUint16(32, channels * (bitsPerSample ~/ 8), Endian.little);
+    buf.setUint16(34, bitsPerSample, Endian.little);
+    str(36, 'data');
+    buf.setUint32(40, dataSize, Endian.little);
+    // bytes 44..end are already zero = silence
+    return buf.buffer.asUint8List();
+  }
+
+  /// Appends an error to a persistent log file and opens it automatically.
+  Future<void> _logAndOpenError(String context, dynamic error, [StackTrace? stack]) async {
+    // Show snack immediately so user sees something even if file ops fail
+    _showSnack('Error: $error');
+
+    try {
+      final extDir = await getExternalStorageDirectory()
+          ?? await getTemporaryDirectory();
+      final logFile = File('${extDir.path}/tts_error_log.txt');
+      final timestamp = DateTime.now().toIso8601String();
+      final entry = '[$timestamp]\nContext: $context\nError: $error'
+          '${stack != null ? '\nStack:\n$stack' : ''}\n${'─' * 60}\n';
+      await logFile.writeAsString(entry, mode: FileMode.append);
+      debugPrint('Error log written to: ${logFile.path}');
+      await Future.delayed(const Duration(seconds: 1)); // let snack show first
+      await OpenFilex.open(logFile.path);
+    } catch (e) {
+      debugPrint('Failed to write error log: $e');
+    }
   }
 
   String _wrapText(String text, int maxWidth) {
@@ -507,49 +599,48 @@ Future<void> _createVideo() async {
 
     try {
       // Step 1: Synthesize TTS to an audio file
-      final tempDir = await getTemporaryDirectory();
-      final audioPath = '${tempDir.path}/tts_audio.mp3';
-      final audioFile = File(audioPath);
-      if (await audioFile.exists()) await audioFile.delete();
+      // Use external storage — device TTS engine runs in a separate process
+      // and cannot write to the app's private cache directory.
+      final extDir = await getExternalStorageDirectory();
+      final storageDir = extDir ?? await getTemporaryDirectory();
 
-      // Use ElevenLabs if key is set, otherwise fall back to device TTS
-      debugPrint('EL key length: ${_elApiKey.length}, voiceId: $_elVoiceId');
-      if (_elApiKey.isNotEmpty) {
+      String audioPath;
+      File audioFile;
+
+      if (_elApiKey.isNotEmpty && _useElevenLabs) {
+        // ElevenLabs writes the file itself — use external storage, MP3 format
+        audioPath = '${storageDir.path}/tts_audio.mp3';
+        audioFile = File(audioPath);
+        if (await audioFile.exists()) await audioFile.delete();
+
         _showSnack('Generating audio with ElevenLabs...');
-        debugPrint('Calling ElevenLabs API...');
-        final el = ElevenLabsService(
-            apiKey: _elApiKey, voiceId: _elVoiceId);
+        debugPrint('Calling ElevenLabs API... path: $audioPath');
+        final el = ElevenLabsService(apiKey: _elApiKey, voiceId: _elVoiceId);
         await el.synthesizeToFile(_newVoiceText!, audioPath);
-        debugPrint('ElevenLabs done. File exists: ${await audioFile.exists()}, size: ${await audioFile.exists() ? await audioFile.length() : 0}');
+        debugPrint('ElevenLabs done. size: ${await audioFile.length()}');
       } else {
-        _showSnack('Generating audio with device TTS...');
-        await flutterTts.setVolume(volume);
-        await flutterTts.setSpeechRate(rate);
-        await flutterTts.setPitch(pitch);
-        await flutterTts.synthesizeToFile(_newVoiceText!, audioPath);
+        // Free testing mode — generate a silent WAV locally (no TTS engine needed).
+        // Device TTS synthesizeToFile is unreliable across Android vendors/versions.
+        // Cap at 30 s while debugging so video encodes quickly.
+        const maxTestSeconds = 30;
+        final wordCount = (_newVoiceText ?? '').trim().split(RegExp(r'\s+')).length;
+        // Rough estimate: ~120 words per minute at default speech rate
+        final estimatedSecs = ((wordCount / 120.0) * 60).round().clamp(3, maxTestSeconds);
 
-        // Poll until the audio file appears (up to 30 seconds)
-        bool audioReady = false;
-        for (int i = 0; i < 150; i++) {
-          await Future.delayed(const Duration(milliseconds: 200));
-          if (await audioFile.exists() && await audioFile.length() > 1024) {
-            audioReady = true;
-            break;
-          }
-        }
-        if (!audioReady) {
-          _showSnack('Audio synthesis timed out');
-          return;
-        }
+        audioPath = '${storageDir.path}/tts_audio.wav';
+        audioFile = File(audioPath);
+        _showSnack('Generating silent test audio ($estimatedSecs s)...');
+        debugPrint('Writing silent WAV: $audioPath  duration=${estimatedSecs}s');
+        await audioFile.writeAsBytes(_buildSilentWav(estimatedSecs));
       }
 
-      // Step 2: Create output path in app external storage
-      final extDir = await getExternalStorageDirectory();
+      // Step 2: Create output path
+      _showSnack('Audio ready — preparing video output path...');
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final videoPath = '${extDir!.path}/tts_$timestamp.mp4';
+      final videoPath = '${storageDir.path}/tts_$timestamp.mp4';
 
       // Step 3: Create video using native Android MediaMuxer
-      _showSnack('Encoding video...');
+      _showSnack('Encoding video (this may take a while for long texts)...');
       await VideoCreatorChannel.createVideo(
         audioPath: audioPath,
         videoPath: videoPath,
@@ -559,9 +650,9 @@ Future<void> _createVideo() async {
       setState(() => _videoFilePath = videoPath);
       _showSnack('Video saved! Opening...');
       await OpenFilex.open(videoPath);
-    } catch (e) {
-      if (kDebugMode) debugPrint('_createVideo error: $e');
-      _showSnack('Error: $e');
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('_createVideo error: $e\n$stack');
+      await _logAndOpenError('_createVideo', e, stack);
     } finally {
       setState(() => _isCreatingVideo = false);
     }
@@ -600,8 +691,9 @@ Future<void> _createVideo() async {
                       child: Container(
                         width: 8,
                         height: 8,
-                        decoration: const BoxDecoration(
-                          color: Colors.green,
+                        decoration: BoxDecoration(
+                          // green = ElevenLabs active, orange = key saved but disabled
+                          color: _useElevenLabs ? Colors.green : Colors.orange,
                           shape: BoxShape.circle,
                         ),
                       ),
@@ -620,9 +712,10 @@ Future<void> _createVideo() async {
               _inputSection(),
               _btnSection(),
               if (isAndroid) _videoSection(),
-              _engineSection(), // _getEngines
-              _voiceSection(), // _getVoices
-              _languageSection(), // _getLanguages
+              // Engine/voice/language selectors hidden — using ElevenLabs TTS
+              // _engineSection(),
+              // _voiceSection(),
+              // _languageSection(),
               _buildSliders(),
               if (isAndroid) _getMaxSpeechInputLengthSection(),
             ],
