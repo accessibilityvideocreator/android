@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io' show Platform, File, FileMode;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
@@ -55,6 +56,9 @@ class MyAppState extends State<MyApp> {
   // Image scroll mode: when true, shows the doc image scrolling instead of text
   bool   _imageScrollMode = false;
   final  TextEditingController _imagePathCtrl = TextEditingController();
+  String? _extractedAssetImagePath;   // set after the PNG is extracted at startup
+
+  // Fallback path (only used if extraction somehow fails)
   static const _defaultImagePath =
       '/storage/emulated/0/Download/HOW_IT_WORKS_screenshot.png';
 
@@ -88,6 +92,34 @@ class MyAppState extends State<MyApp> {
       _getDefaults(); // invoked after initial build of context is complete
     });
     _loadElSettings();
+    _extractBundledAssets();
+  }
+
+  /// Copies bundled assets (PNG screenshot) from the APK to external storage
+  /// once, so Kotlin can load them as regular file paths.
+  Future<void> _extractBundledAssets() async {
+    if (!isAndroid) return;
+    try {
+      final extDir = await getExternalStorageDirectory()
+          ?? await getTemporaryDirectory();
+      final destPath = '${extDir.path}/HOW_IT_WORKS_screenshot.png';
+      final destFile = File(destPath);
+      // Only extract if not already present (avoids overwriting on every launch)
+      if (!await destFile.exists()) {
+        final bytes = await rootBundle.load('assets/HOW_IT_WORKS_screenshot.png');
+        await destFile.writeAsBytes(bytes.buffer.asUint8List());
+        debugPrint('Asset extracted to: $destPath');
+      }
+      setState(() {
+        _extractedAssetImagePath = destPath;
+        // Auto-fill the path field so the user sees it immediately
+        if (_imagePathCtrl.text.isEmpty) {
+          _imagePathCtrl.text = destPath;
+        }
+      });
+    } catch (e) {
+      debugPrint('Asset extraction failed: $e');
+    }
   }
 
   Future<void> _loadElSettings() async {
@@ -678,7 +710,7 @@ Future<void> _createVideo() async {
       if (_imageScrollMode) {
         final imgPath = _imagePathCtrl.text.trim().isNotEmpty
             ? _imagePathCtrl.text.trim()
-            : _defaultImagePath;
+            : (_extractedAssetImagePath ?? _defaultImagePath);
         if (!await File(imgPath).exists()) {
           _showSnack('Image not found: $imgPath\nCopy the PNG to your phone first.');
           setState(() => _isCreatingVideo = false);
@@ -841,15 +873,18 @@ Future<void> _createVideo() async {
                 prefixIcon: const Icon(Icons.image),
                 suffixIcon: IconButton(
                   icon: const Icon(Icons.auto_fix_high, size: 18),
-                  tooltip: 'Use default HOW_IT_WORKS path',
+                  tooltip: 'Use bundled screenshot path',
                   onPressed: () => setState(() =>
-                      _imagePathCtrl.text = _defaultImagePath),
+                      _imagePathCtrl.text =
+                          _extractedAssetImagePath ?? _defaultImagePath),
                 ),
               ),
             ),
             const SizedBox(height: 8),
             Text(
-              'Tip: copy HOW_IT_WORKS_screenshot.png to $_defaultImagePath',
+              _extractedAssetImagePath != null
+                  ? 'Screenshot bundled with app ✓  $_extractedAssetImagePath'
+                  : 'Screenshot will be extracted from the APK on first run',
               style: const TextStyle(fontSize: 10, color: Colors.blueGrey),
             ),
             const SizedBox(height: 8),
