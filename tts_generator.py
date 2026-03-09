@@ -338,21 +338,13 @@ class App(tk.Tk):
 
         r2 = tk.Frame(out_frame, bg=BG)
         r2.pack(fill="x", pady=(8, 0))
-        self.make_video_var = tk.BooleanVar(value=False)
-        tk.Checkbutton(r2,
-                       text="Also make scrolling video  (needs ffmpeg + screenshot PNG)",
-                       variable=self.make_video_var, command=self._on_video_toggle,
-                       bg=BG, fg=FG, selectcolor=BG2, activebackground=BG,
-                       font=FONT_UI).pack(side="left")
-
-        self.video_row = tk.Frame(out_frame, bg=BG)
-        tk.Label(self.video_row, text="Screenshot PNG:",
+        tk.Label(r2, text="Screenshot PNG (for video):",
                  font=FONT_UI, bg=BG, fg=FG).pack(side="left")
         self.png_path_var = tk.StringVar(value=str(SCREENSHOT_PNG))
-        tk.Entry(self.video_row, textvariable=self.png_path_var, bg=BG2, fg=FG,
+        tk.Entry(r2, textvariable=self.png_path_var, bg=BG2, fg=FG,
                  insertbackground=FG, font=FONT_MONO, relief="flat",
                  bd=1).pack(side="left", fill="x", expand=True, padx=8)
-        self._btn(self.video_row, "Browse…", self._browse_png,
+        self._btn(r2, "Browse…", self._browse_png,
                   "#21262d", FG).pack(side="left")
 
         # ── Action buttons ───────────────────────────────────────────────────
@@ -364,10 +356,15 @@ class App(tk.Tk):
             "#1f6feb", FG_BRIGHT, font=("Segoe UI", 11, "bold"), padx=20, pady=8)
         self.gen_btn.pack(side="left")
 
+        self.vid_btn = self._btn(
+            act_frame, "🎬  Generate Video", self._on_generate_video,
+            "#238636", FG_BRIGHT, font=("Segoe UI", 11, "bold"), padx=20, pady=8)
+        self.vid_btn.pack(side="left", padx=8)
+
         self.open_btn = self._btn(
             act_frame, "▶  Open Audio", self._open_last_audio,
             "#21262d", FG, font=FONT_UI, padx=12, pady=8)
-        self.open_btn.pack(side="left", padx=8)
+        self.open_btn.pack(side="left")
         self.open_btn.config(state="disabled")
 
         self.save_lbl = tk.Label(act_frame, text="",
@@ -471,12 +468,6 @@ class App(tk.Tk):
         save_cfg(self.cfg)
         self._build_settings()
 
-    def _on_video_toggle(self):
-        if self.make_video_var.get():
-            self.video_row.pack(fill="x", pady=(6, 0))
-        else:
-            self.video_row.pack_forget()
-
     def _on_text_change(self, _=None):
         n = len(self.text_box.get("1.0", "end-1c"))
         self.char_lbl.config(text=f"{n:,} chars")
@@ -563,31 +554,60 @@ class App(tk.Tk):
         self.after(0, _do)
 
     # ── Generate ─────────────────────────────────────────────────────────────
+    def _validate_tts(self) -> str | None:
+        """Return error string if TTS isn't ready, else None."""
+        svc = self.svc_var.get()
+        if svc == "system" and not _pyttsx3_available():
+            return "pyttsx3 is not installed.\nClick 'Install pyttsx3' in the Settings panel first."
+        if svc == "elevenlabs" and not self.cfg.get("el_api_key"):
+            return "Please enter your ElevenLabs API key in Settings."
+        if svc == "google" and not self.cfg.get("google_api_key"):
+            return "Please enter your Google Cloud TTS API key in Settings."
+        return None
+
     def _on_generate(self):
         text = self.text_box.get("1.0", "end-1c").strip()
         if not text:
             messagebox.showwarning("No text", "Please enter some text first.")
             return
-
-        svc = self.svc_var.get()
-        if svc == "system" and not _pyttsx3_available():
-            messagebox.showwarning("Not installed",
-                "pyttsx3 is not installed.\nClick 'Install pyttsx3' in the Settings panel first.")
+        err = self._validate_tts()
+        if err:
+            messagebox.showwarning("Not ready", err)
             return
-        if svc == "elevenlabs" and not self.cfg.get("el_api_key"):
-            messagebox.showwarning("No API key",
-                "Please enter your ElevenLabs API key in Settings.")
-            return
-        if svc == "google" and not self.cfg.get("google_api_key"):
-            messagebox.showwarning("No API key",
-                "Please enter your Google Cloud TTS API key in Settings.")
-            return
+        self._set_busy(True, audio_only=True)
+        threading.Thread(target=self._generate_worker,
+                         args=(text, False), daemon=True).start()
 
-        self.gen_btn.config(state="disabled", text="⏳  Generating…")
-        self.save_lbl.config(text="")
-        threading.Thread(target=self._generate_worker, args=(text,), daemon=True).start()
+    def _on_generate_video(self):
+        text = self.text_box.get("1.0", "end-1c").strip()
+        if not text:
+            messagebox.showwarning("No text", "Please enter some text first.")
+            return
+        err = self._validate_tts()
+        if err:
+            messagebox.showwarning("Not ready", err)
+            return
+        png = self.png_path_var.get().strip()
+        if not pathlib.Path(png).exists():
+            messagebox.showwarning("PNG not found",
+                f"Screenshot PNG not found:\n{png}\n\nBrowse to it using the folder icon.")
+            return
+        self._set_busy(True, audio_only=False)
+        threading.Thread(target=self._generate_worker,
+                         args=(text, True), daemon=True).start()
 
-    def _generate_worker(self, text: str):
+    def _set_busy(self, busy: bool, audio_only: bool = True):
+        if busy:
+            self.gen_btn.config(state="disabled",
+                                text="⏳  Generating…" if audio_only else "🎙  Generating Audio…")
+            self.vid_btn.config(state="disabled",
+                                text="⏳  Generating…" if not audio_only else "🎬  Generate Video")
+            self.save_lbl.config(text="")
+        else:
+            self.gen_btn.config(state="normal", text="🎙  Generate Audio")
+            self.vid_btn.config(state="normal", text="🎬  Generate Video")
+
+    def _generate_worker(self, text: str, make_video: bool):
         try:
             out_dir = pathlib.Path(self.out_dir_var.get())
             out_dir.mkdir(parents=True, exist_ok=True)
@@ -611,20 +631,19 @@ class App(tk.Tk):
 
             self._last_audio_path = audio_out
             size_kb = os.path.getsize(audio_out) // 1024
-            self._log(f"✅ Saved: {audio_out}  ({size_kb} KB)", ACCENT_GRN)
+            self._log(f"✅ Audio saved: {audio_out}  ({size_kb} KB)", ACCENT_GRN)
             self.after(0, lambda: self.save_lbl.config(
                 text=f"✓ {pathlib.Path(audio_out).name}"))
             self.after(0, lambda: self.open_btn.config(state="normal"))
 
-            if self.make_video_var.get():
+            if make_video:
                 self._make_video_worker(audio_out, ts)
 
         except Exception as e:
             self._log(f"❌ {e}", ACCENT_RED)
             self.after(0, lambda: messagebox.showerror("Error", str(e)))
         finally:
-            self.after(0, lambda: self.gen_btn.config(
-                state="normal", text="🎙  Generate Audio"))
+            self.after(0, lambda: self._set_busy(False))
 
     def _make_video_worker(self, audio_path: str, ts: str):
         if not MAKE_VIDEO_PY.exists():
