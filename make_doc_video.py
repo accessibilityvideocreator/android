@@ -95,7 +95,7 @@ def generate_frames(doc_img: Image.Image, total_duration: float, tmp_dir: str):
         frame_idx += 1
         if frame_idx % (FPS * 5) == 0:
             pct = frame_idx / total_frames * 100
-            print(f"    rendered {frame_idx}/{total_frames} frames ({pct:.0f}%)", end="\r")
+            print(f"    rendered {frame_idx}/{total_frames} frames ({pct:.0f}%)", flush=True)
 
     # — Title hold (scroll_y = 0) ——————————————————————————————————————
     top_frame = crop_frame(doc_img, 0)
@@ -139,12 +139,12 @@ def encode_video(tmp_dir: str, audio_path: str, output_path: str):
         output_path
     ]
 
-    print(f"\n  Encoding with ffmpeg...")
+    print(f"\n  Encoding with ffmpeg...", flush=True)
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        print("ffmpeg stderr:", result.stderr[-2000:])
+        print("ffmpeg stderr:", result.stderr[-2000:], flush=True)
         raise RuntimeError("ffmpeg encoding failed")
-    print(f"  ✓ Video saved: {output_path}")
+    print(f"  ✓ Video saved: {output_path}", flush=True)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────

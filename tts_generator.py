@@ -670,10 +670,11 @@ class App(tk.Tk):
             self._log(f"⚠  Screenshot PNG not found: {png_path}", ACCENT_ORG)
             return
 
-        out_dir   = pathlib.Path(self.out_dir_var.get())
+        out_dir   = pathlib.Path.home() / "Downloads"
         video_out = str(out_dir / f"doc_video_{ts}.mp4")
         self._log("🎬 Starting video generation…")
-        cmd = [sys.executable, str(MAKE_VIDEO_PY),
+        # -u = unbuffered stdout so progress lines stream through the pipe immediately
+        cmd = [sys.executable, "-u", str(MAKE_VIDEO_PY),
                "--audio",      audio_path,
                "--screenshot", png_path,
                "--output",     video_out]
@@ -689,10 +690,21 @@ class App(tk.Tk):
                 name_v = pathlib.Path(video_out).name
                 self.after(0, lambda: self.save_lbl.config(
                     text=f"✓ {name_a}  +  {name_v}"))
+                self._play_done_chime()
             else:
                 self._log("❌ make_doc_video.py exited with an error", ACCENT_RED)
         except Exception as e:
             self._log(f"❌ Video generation failed: {e}", ACCENT_RED)
+
+    @staticmethod
+    def _play_done_chime():
+        """Play a short ascending chime to signal completion (Windows built-in, no extra deps)."""
+        try:
+            import winsound
+            for freq, dur in [(523, 120), (659, 120), (784, 120), (1047, 300)]:
+                winsound.Beep(freq, dur)
+        except Exception:
+            pass   # non-Windows or audio unavailable — silently skip
 
 
 # ─── Entry point ───────────────────────────────────────────────────────────────
