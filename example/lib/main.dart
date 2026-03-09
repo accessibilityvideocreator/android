@@ -52,6 +52,12 @@ class MyAppState extends State<MyApp> {
   // TTS service selection: 'elevenlabs' or 'google'
   String _ttsService = 'elevenlabs';
 
+  // Image scroll mode: when true, shows the doc image scrolling instead of text
+  bool   _imageScrollMode = false;
+  final  TextEditingController _imagePathCtrl = TextEditingController();
+  static const _defaultImagePath =
+      '/storage/emulated/0/Download/HOW_IT_WORKS_screenshot.png';
+
   // ElevenLabs settings
   String _elApiKey  = '';
   String _elVoiceId = ElevenLabsService.defaultVoiceId;
@@ -668,12 +674,30 @@ Future<void> _createVideo() async {
       final videoPath = '${storageDir.path}/tts_$timestamp.mp4';
 
       // Step 3: Create video using native Android MediaMuxer
-      _showSnack('Encoding video (this may take a while for long texts)...');
-      final publicPath = await VideoCreatorChannel.createVideo(
-        audioPath: audioPath,
-        videoPath: videoPath,
-        text: _newVoiceText!,
-      );
+      String? publicPath;
+      if (_imageScrollMode) {
+        final imgPath = _imagePathCtrl.text.trim().isNotEmpty
+            ? _imagePathCtrl.text.trim()
+            : _defaultImagePath;
+        if (!await File(imgPath).exists()) {
+          _showSnack('Image not found: $imgPath\nCopy the PNG to your phone first.');
+          setState(() => _isCreatingVideo = false);
+          return;
+        }
+        _showSnack('Encoding image-scroll video...');
+        publicPath = await VideoCreatorChannel.createImageScrollVideo(
+          imagePath: imgPath,
+          audioPath: audioPath,
+          videoPath: videoPath,
+        );
+      } else {
+        _showSnack('Encoding video (this may take a while for long texts)...');
+        publicPath = await VideoCreatorChannel.createVideo(
+          audioPath: audioPath,
+          videoPath: videoPath,
+          text: _newVoiceText!,
+        );
+      }
 
       // publicPath is the absolute path returned by Kotlin (from MediaStore or temp fallback)
       final openPath = publicPath ?? videoPath;
@@ -782,30 +806,82 @@ Future<void> _createVideo() async {
 
   Widget _videoSection() {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 24.0),
+      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 24.0),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          ElevatedButton.icon(
-            icon: _isCreatingVideo
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.white),
-                  )
-                : const Icon(Icons.videocam),
-            label: Text(
-                _isCreatingVideo ? 'Creating Video...' : 'Create Video'),
-            onPressed: (_isCreatingVideo ||
-                    _newVoiceText == null ||
-                    _newVoiceText!.trim().isEmpty)
-                ? null
-                : _createVideo,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.deepPurple,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 28, vertical: 12),
+          // ── Image Scroll toggle ──────────────────────────────────────────
+          Row(
+            children: [
+              const Icon(Icons.image_search, size: 18, color: Colors.grey),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text('Image Scroll Mode',
+                    style: TextStyle(fontSize: 13)),
+              ),
+              Switch(
+                value: _imageScrollMode,
+                onChanged: (v) => setState(() => _imageScrollMode = v),
+              ),
+            ],
+          ),
+          if (_imageScrollMode) ...[
+            const Text(
+              'Path to the PNG image to scroll through (copy it to your phone first)',
+              style: TextStyle(fontSize: 11, color: Colors.grey),
+            ),
+            const SizedBox(height: 6),
+            TextField(
+              controller: _imagePathCtrl,
+              style: const TextStyle(fontSize: 12),
+              decoration: InputDecoration(
+                labelText: 'Image path on device',
+                hintText: _defaultImagePath,
+                border: const OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.image),
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.auto_fix_high, size: 18),
+                  tooltip: 'Use default HOW_IT_WORKS path',
+                  onPressed: () => setState(() =>
+                      _imagePathCtrl.text = _defaultImagePath),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Tip: copy HOW_IT_WORKS_screenshot.png to $_defaultImagePath',
+              style: const TextStyle(fontSize: 10, color: Colors.blueGrey),
+            ),
+            const SizedBox(height: 8),
+          ],
+          // ── Create Video button ──────────────────────────────────────────
+          Center(
+            child: ElevatedButton.icon(
+              icon: _isCreatingVideo
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white),
+                    )
+                  : Icon(_imageScrollMode ? Icons.slideshow : Icons.videocam),
+              label: Text(_isCreatingVideo
+                  ? 'Creating Video...'
+                  : _imageScrollMode
+                      ? 'Create Image Scroll Video'
+                      : 'Create Video'),
+              onPressed: (_isCreatingVideo ||
+                      _newVoiceText == null ||
+                      _newVoiceText!.trim().isEmpty)
+                  ? null
+                  : _createVideo,
+              style: ElevatedButton.styleFrom(
+                backgroundColor:
+                    _imageScrollMode ? Colors.indigo : Colors.deepPurple,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 28, vertical: 12),
+              ),
             ),
           ),
           if (_videoFilePath != null)

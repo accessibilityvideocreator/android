@@ -25,4 +25,19 @@ class VideoCreatorChannel {
       'audioPath': audioPath,
     });
   }
+
+  /// Creates an MP4 video that pans/scrolls through a tall [imagePath] while
+  /// [audioPath] plays. Returns the public file path where the video was saved.
+  static Future<String?> createImageScrollVideo({
+    required String imagePath,
+    required String audioPath,
+    required String videoPath,
+  }) async {
+    final result = await _channel.invokeMethod<String>('createImageScrollVideo', {
+      'imagePath': imagePath,
+      'audioPath': audioPath,
+      'videoPath': videoPath,
+    });
+    return result;
+  }
 }

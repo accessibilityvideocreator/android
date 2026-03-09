@@ -48,6 +48,19 @@ class MainActivity : FlutterActivity() {
                             result.error("AUDIO_SAVE_ERROR", "${e.javaClass.simpleName}: ${e.message}", null)
                         }
                     }.start()
+                } else if (call.method == "createImageScrollVideo") {
+                    val imagePath = call.argument<String>("imagePath")!!
+                    val audioPath = call.argument<String>("audioPath")!!
+                    val videoPath = call.argument<String>("videoPath")!!
+                    val ctx = applicationContext
+                    Thread {
+                        try {
+                            val publicPath = VideoCreator.createImageScroll(ctx, imagePath, audioPath, videoPath)
+                            result.success(publicPath)
+                        } catch (e: Throwable) {
+                            result.error("VIDEO_ERROR", "${e.javaClass.simpleName}: ${e.message}", null)
+                        }
+                    }.start()
                 } else {
                     result.notImplemented()
                 }
@@ -191,6 +204,78 @@ object VideoCreator {
         // 6. Copy to Movies/TTS Videos/ so it's easy to find; delete temp file
         val publicPath = saveToPublicMovies(context, outputPath)
         return publicPath ?: outputPath
+    }
+
+    // ── Image-scroll video: pan through a tall image while audio plays ───
+    fun createImageScroll(context: Context, imagePath: String, audioPath: String, outputPath: String): String {
+        // 1. Load + scale image to W pixels wide
+        val srcBmp = android.graphics.BitmapFactory.decodeFile(imagePath)
+            ?: throw Exception("Could not load image: $imagePath")
+        val scaledH = (srcBmp.height.toFloat() * W / srcBmp.width).toInt()
+        val scaledBmp = if (srcBmp.width != W) {
+            Bitmap.createScaledBitmap(srcBmp, W, scaledH, true).also { srcBmp.recycle() }
+        } else {
+            srcBmp
+        }
+
+        // 2. Probe source audio
+        val extractor     = MediaExtractor().also { it.setDataSource(audioPath) }
+        val audioTrackIdx = (0 until extractor.trackCount).firstOrNull { i ->
+            extractor.getTrackFormat(i).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
+        } ?: throw Exception("No audio track found in $audioPath")
+        val srcAudioFmt  = extractor.getTrackFormat(audioTrackIdx)
+        val durationUs   = srcAudioFmt.getLong(MediaFormat.KEY_DURATION)
+        val sampleRate   = srcAudioFmt.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+        val channelCount = srcAudioFmt.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+        val totalFrames  = ((durationUs / 1_000_000.0) * FPS).toInt() + FPS
+
+        val maxScroll      = (scaledBmp.height - H).coerceAtLeast(0)
+        val titleHold      = (FPS * 1.5).toInt()  // pause at top
+        val endHold        = (FPS * 2.0).toInt()  // pause at bottom
+        val scrollFrames   = (totalFrames - titleHold - endHold).coerceAtLeast(1)
+
+        // 3. Frame provider: each frame is a 1080×1920 crop panning top→bottom
+        val frameProvider: (Int) -> ByteArray = { frameIdx ->
+            val scrollY: Float = when {
+                frameIdx < titleHold                     -> 0f
+                frameIdx >= totalFrames - endHold        -> maxScroll.toFloat()
+                else -> {
+                    val t = (frameIdx - titleHold).toFloat() / scrollFrames
+                    easeInOut(t) * maxScroll
+                }
+            }
+            cropImageFrame(scaledBmp, scrollY.toInt(), W, H)
+        }
+
+        val (videoSamples, videoFmt) = encodeVideo(frameProvider, totalFrames)
+
+        // 4. Transcode audio
+        extractor.selectTrack(audioTrackIdx)
+        val (aacSamples, aacFmt) = transcodeAudio(extractor, srcAudioFmt, sampleRate, channelCount)
+        extractor.release()
+        scaledBmp.recycle()
+
+        // 5. Mux + save
+        muxToFile(outputPath, videoSamples, videoFmt, aacSamples, aacFmt)
+        val publicPath = saveToPublicMovies(context, outputPath)
+        return publicPath ?: outputPath
+    }
+
+    // ── Crop a 1080×1920 slice from a tall bitmap at the given scroll offset ─
+    private fun cropImageFrame(bmp: Bitmap, scrollY: Int, w: Int, h: Int): ByteArray {
+        val maxY  = (bmp.height - h).coerceAtLeast(0)
+        val y0    = scrollY.coerceIn(0, maxY)
+        val cropH = minOf(h, bmp.height - y0)
+
+        val frame  = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(frame)
+        canvas.drawColor(Color.parseColor(COLOR_BACKGROUND))
+
+        val src = android.graphics.Rect(0, y0, w, y0 + cropH)
+        val dst = android.graphics.Rect(0, 0, w, cropH)
+        canvas.drawBitmap(bmp, src, dst, null)
+
+        return bitmapToNv12(frame, w, h)
     }
 
     // ── Ease-in-out (cosine) ──────────────────────────────────────────────
