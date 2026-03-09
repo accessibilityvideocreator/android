@@ -37,6 +37,9 @@ NARRATION_TXT = SCRIPT_DIR / "example" / "HOW_IT_WORKS_narration.txt"
 SCREENSHOT_PNG = SCRIPT_DIR / "HOW_IT_WORKS_screenshot.png"
 MAKE_VIDEO_PY  = SCRIPT_DIR / "make_doc_video.py"
 
+# Tesseract OCR — hardcoded path (winget install UB-Mannheim.TesseractOCR)
+TESSERACT_EXE = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
 DEFAULT_CFG = {
     "service":        "system",           # default to offline — no setup needed
     "el_api_key":     "",
@@ -73,6 +76,25 @@ def _pyttsx3_available() -> bool:
         return True
     except ImportError:
         return False
+
+
+def _tesseract_available() -> bool:
+    return pathlib.Path(TESSERACT_EXE).exists()
+
+
+def ocr_image(image_path: str) -> str:
+    """Run Tesseract OCR on an image file and return the extracted text."""
+    try:
+        import pytesseract
+        from PIL import Image as PILImage
+        pytesseract.pytesseract.tesseract_cmd = TESSERACT_EXE
+        img = PILImage.open(image_path)
+        text = pytesseract.image_to_string(img, lang="eng")
+        # Clean up: collapse excessive blank lines to at most one blank line
+        text = re.sub(r"\n{3,}", "\n\n", text).strip()
+        return text
+    except ImportError as e:
+        raise RuntimeError(f"Missing dependency: {e}\nRun: pip install pytesseract Pillow") from e
 
 
 def _install_pyttsx3(log_fn=None):
@@ -304,6 +326,8 @@ class App(tk.Tk):
                   self._load_file, "#21262d", FG).pack(side="left")
         self._btn(btn_row, "📄 Load narration.txt",
                   self._load_narration, "#21262d", FG).pack(side="left", padx=6)
+        self._btn(btn_row, "📷 OCR from image…",
+                  self._ocr_from_image, "#21262d", ACCENT_ORG).pack(side="left")
         self._btn(btn_row, "🗑 Clear",
                   self._clear_text, "#21262d", ACCENT_RED).pack(side="right")
         self.char_lbl = tk.Label(btn_row, text="0 chars",
@@ -507,6 +531,41 @@ class App(tk.Tk):
     def _clear_text(self):
         self.text_box.delete("1.0", "end")
         self._on_text_change()
+
+    def _ocr_from_image(self):
+        if not _tesseract_available():
+            messagebox.showerror(
+                "Tesseract not found",
+                f"Tesseract OCR not found at:\n{TESSERACT_EXE}\n\n"
+                "Install it with:\n  winget install UB-Mannheim.TesseractOCR"
+            )
+            return
+        path = filedialog.askopenfilename(
+            title="Select image to OCR",
+            filetypes=[
+                ("Image files", "*.png *.jpg *.jpeg *.bmp *.tiff *.tif *.gif *.webp"),
+                ("All files", "*.*"),
+            ]
+        )
+        if not path:
+            return
+        self._log(f"📷 Running OCR on: {pathlib.Path(path).name}…")
+
+        def _worker():
+            try:
+                text = ocr_image(path)
+                char_count = len(text)
+                def _apply():
+                    self.text_box.delete("1.0", "end")
+                    self.text_box.insert("1.0", text)
+                    self._on_text_change()
+                    self._log(f"✅ OCR complete — {char_count:,} chars extracted", ACCENT_GRN)
+                self.after(0, _apply)
+            except Exception as e:
+                self.after(0, lambda: self._log(f"❌ OCR failed: {e}", ACCENT_RED))
+                self.after(0, lambda: messagebox.showerror("OCR Error", str(e)))
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _browse_output(self):
         path = filedialog.askdirectory(title="Select output folder")
