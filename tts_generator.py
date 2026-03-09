@@ -565,6 +565,12 @@ class App(tk.Tk):
             return "Please enter your Google Cloud TTS API key in Settings."
         return None
 
+    @staticmethod
+    def _ffmpeg_available() -> bool:
+        """Return True if ffmpeg and ffprobe are on the PATH."""
+        import shutil
+        return shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
+
     def _on_generate(self):
         text = self.text_box.get("1.0", "end-1c").strip()
         if not text:
@@ -582,6 +588,16 @@ class App(tk.Tk):
         text = self.text_box.get("1.0", "end-1c").strip()
         if not text:
             messagebox.showwarning("No text", "Please enter some text first.")
+            return
+        if not self._ffmpeg_available():
+            messagebox.showerror(
+                "ffmpeg not found",
+                "ffmpeg and ffprobe must be installed and on your PATH to generate video.\n\n"
+                "Download from:  https://ffmpeg.org/download.html\n\n"
+                "Windows quick install (winget):\n"
+                "  winget install Gyan.FFmpeg\n\n"
+                "After installing, restart this app."
+            )
             return
         err = self._validate_tts()
         if err:
