@@ -237,9 +237,9 @@ FG_BRIGHT   = "#e6edf3"
 ACCENT_GRN  = "#3fb950"
 ACCENT_RED  = "#f85149"
 ACCENT_ORG  = "#d29922"
-FONT_UI     = ("Segoe UI", 10)
-FONT_MONO   = ("Consolas", 9)
-FONT_H1     = ("Segoe UI", 13, "bold")
+FONT_UI     = ("Segoe UI", 5)
+FONT_MONO   = ("Consolas", 5)
+FONT_H1     = ("Segoe UI", 7, "bold")
 
 
 # ─── Main window ───────────────────────────────────────────────────────────────
@@ -248,8 +248,8 @@ class App(tk.Tk):
         super().__init__()
         self.title("TTS Generator — Accessibility Video Creator")
         self.configure(bg=BG)
-        self.geometry("860x820")
-        self.minsize(700, 620)
+        self.geometry("700x640")
+        self.minsize(500, 460)
         self.resizable(True, True)
 
         self.cfg = load_cfg()
@@ -260,18 +260,18 @@ class App(tk.Tk):
     # ── Build UI ──────────────────────────────────────────────────────────────
     def _build_ui(self):
         # Top bar
-        top = tk.Frame(self, bg=BG, padx=16, pady=10)
+        top = tk.Frame(self, bg=BG, padx=8, pady=5)
         top.pack(fill="x")
         tk.Label(top, text="TTS Generator", font=FONT_H1,
                  bg=BG, fg=FG_BRIGHT).pack(side="left")
         tk.Label(top, text=" · Accessibility Video Creator",
-                 font=("Segoe UI", 10), bg=BG, fg="#8b949e").pack(side="left")
+                 font=("Segoe UI", 5), bg=BG, fg="#8b949e").pack(side="left")
 
         # ── Service selector ─────────────────────────────────────────────────
         svc_frame = tk.LabelFrame(self, text=" TTS Service ", font=FONT_UI,
                                   bg=BG, fg="#8b949e", bd=1, relief="solid",
-                                  padx=12, pady=10)
-        svc_frame.pack(fill="x", padx=16, pady=(0, 8))
+                                  padx=6, pady=5)
+        svc_frame.pack(fill="x", padx=8, pady=(0, 4))
 
         self.svc_var = tk.StringVar(value=self.cfg.get("service", "system"))
         services = [
@@ -288,15 +288,15 @@ class App(tk.Tk):
         # ── Settings panel ───────────────────────────────────────────────────
         self.settings_frame = tk.LabelFrame(self, text=" Settings ", font=FONT_UI,
                                              bg=BG, fg="#8b949e", bd=1, relief="solid",
-                                             padx=12, pady=10)
-        self.settings_frame.pack(fill="x", padx=16, pady=(0, 8))
+                                             padx=6, pady=5)
+        self.settings_frame.pack(fill="x", padx=8, pady=(0, 4))
         self._build_settings()
 
         # ── Text input ───────────────────────────────────────────────────────
         txt_frame = tk.LabelFrame(self, text=" Text to Speak ", font=FONT_UI,
                                    bg=BG, fg="#8b949e", bd=1, relief="solid",
-                                   padx=12, pady=8)
-        txt_frame.pack(fill="both", expand=True, padx=16, pady=(0, 8))
+                                   padx=6, pady=4)
+        txt_frame.pack(fill="both", expand=True, padx=8, pady=(0, 4))
 
         btn_row = tk.Frame(txt_frame, bg=BG)
         btn_row.pack(fill="x", pady=(0, 6))
@@ -307,12 +307,12 @@ class App(tk.Tk):
         self._btn(btn_row, "🗑 Clear",
                   self._clear_text, "#21262d", ACCENT_RED).pack(side="right")
         self.char_lbl = tk.Label(btn_row, text="0 chars",
-                                  font=("Segoe UI", 9), bg=BG, fg="#8b949e")
+                                  font=("Segoe UI", 5), bg=BG, fg="#8b949e")
         self.char_lbl.pack(side="right", padx=8)
 
         self.text_box = scrolledtext.ScrolledText(
             txt_frame, wrap="word", bg=BG2, fg=FG, insertbackground=FG,
-            font=FONT_MONO, relief="flat", bd=0, height=12,
+            font=FONT_MONO, relief="flat", bd=0, height=8,
             selectbackground="#264f78"
         )
         self.text_box.pack(fill="both", expand=True)
@@ -321,8 +321,8 @@ class App(tk.Tk):
         # ── Output settings ──────────────────────────────────────────────────
         out_frame = tk.LabelFrame(self, text=" Output ", font=FONT_UI,
                                    bg=BG, fg="#8b949e", bd=1, relief="solid",
-                                   padx=12, pady=8)
-        out_frame.pack(fill="x", padx=16, pady=(0, 8))
+                                   padx=6, pady=4)
+        out_frame.pack(fill="x", padx=8, pady=(0, 4))
 
         r1 = tk.Frame(out_frame, bg=BG)
         r1.pack(fill="x")
@@ -348,38 +348,38 @@ class App(tk.Tk):
                   "#21262d", FG).pack(side="left")
 
         # ── Action buttons ───────────────────────────────────────────────────
-        act_frame = tk.Frame(self, bg=BG, padx=16, pady=8)
+        act_frame = tk.Frame(self, bg=BG, padx=8, pady=4)
         act_frame.pack(fill="x")
 
         self.gen_btn = self._btn(
             act_frame, "🎙  Generate Audio", self._on_generate,
-            "#1f6feb", FG_BRIGHT, font=("Segoe UI", 11, "bold"), padx=20, pady=8)
+            "#1f6feb", FG_BRIGHT, font=("Segoe UI", 6, "bold"), padx=10, pady=4)
         self.gen_btn.pack(side="left")
 
         self.vid_btn = self._btn(
             act_frame, "🎬  Generate Video", self._on_generate_video,
-            "#238636", FG_BRIGHT, font=("Segoe UI", 11, "bold"), padx=20, pady=8)
-        self.vid_btn.pack(side="left", padx=8)
+            "#238636", FG_BRIGHT, font=("Segoe UI", 6, "bold"), padx=10, pady=4)
+        self.vid_btn.pack(side="left", padx=4)
 
         self.open_btn = self._btn(
             act_frame, "▶  Open Audio", self._open_last_audio,
-            "#21262d", FG, font=FONT_UI, padx=12, pady=8)
+            "#21262d", FG, font=FONT_UI, padx=6, pady=4)
         self.open_btn.pack(side="left")
         self.open_btn.config(state="disabled")
 
         self.save_lbl = tk.Label(act_frame, text="",
-                                  font=("Segoe UI", 9), bg=BG, fg=ACCENT_GRN)
+                                  font=("Segoe UI", 5), bg=BG, fg=ACCENT_GRN)
         self.save_lbl.pack(side="left", padx=8)
 
         # ── Log panel ────────────────────────────────────────────────────────
         log_frame = tk.LabelFrame(self, text=" Log ", font=FONT_UI,
                                    bg=BG, fg="#8b949e", bd=1, relief="solid",
-                                   padx=8, pady=6)
-        log_frame.pack(fill="x", padx=16, pady=(0, 12))
+                                   padx=4, pady=3)
+        log_frame.pack(fill="x", padx=8, pady=(0, 6))
 
         self.log_box = scrolledtext.ScrolledText(
             log_frame, wrap="word", bg="#010409", fg="#8b949e",
-            font=FONT_MONO, height=6, relief="flat", bd=0,
+            font=FONT_MONO, height=4, relief="flat", bd=0,
             state="disabled"
         )
         self.log_box.pack(fill="both")
@@ -401,17 +401,17 @@ class App(tk.Tk):
                          font=FONT_UI, bg=BG, fg=ACCENT_GRN).pack(anchor="w")
                 tk.Label(self.settings_frame,
                          text="Uses your Windows built-in voices (no API key, no internet, no character limit).",
-                         font=("Segoe UI", 9), bg=BG, fg="#8b949e").pack(anchor="w")
+                         font=("Segoe UI", 5), bg=BG, fg="#8b949e").pack(anchor="w")
                 tk.Label(self.settings_frame,
                          text="To change voice or speed: Settings → Time & Language → Speech on Windows.",
-                         font=("Segoe UI", 9), bg=BG, fg="#8b949e").pack(anchor="w", pady=(2,0))
+                         font=("Segoe UI", 5), bg=BG, fg="#8b949e").pack(anchor="w", pady=(2,0))
             else:
                 tk.Label(self.settings_frame,
                          text="⚠  pyttsx3 is not installed.",
                          font=FONT_UI, bg=BG, fg=ACCENT_ORG).pack(anchor="w")
                 tk.Label(self.settings_frame,
                          text='Click "Install pyttsx3" below, or run:  pip install pyttsx3',
-                         font=("Segoe UI", 9), bg=BG, fg="#8b949e").pack(anchor="w", pady=(2, 6))
+                         font=("Segoe UI", 5), bg=BG, fg="#8b949e").pack(anchor="w", pady=(2, 6))
                 self._btn(self.settings_frame, "⬇  Install pyttsx3 now",
                           self._install_pyttsx3_clicked,
                           "#1f6feb", FG_BRIGHT, padx=14, pady=6).pack(anchor="w")
@@ -425,7 +425,7 @@ class App(tk.Tk):
             tk.Label(self.settings_frame,
                      text="Default voice: Rachel (21m00Tcm4TlvDq8ikWAM)  ·  "
                           "Browse voices at elevenlabs.io/voice-library",
-                     font=("Segoe UI", 8), bg=BG, fg="#8b949e").pack(anchor="w")
+                     font=("Segoe UI", 4), bg=BG, fg="#8b949e").pack(anchor="w")
 
         elif svc == "google":
             self._lbl_entry(self.settings_frame, "API Key:",
@@ -435,7 +435,7 @@ class App(tk.Tk):
                             "google_voice")
             tk.Label(self.settings_frame,
                      text="Get key at console.cloud.google.com  ·  Long texts auto-split at 4999 chars.",
-                     font=("Segoe UI", 8), bg=BG, fg="#8b949e").pack(anchor="w")
+                     font=("Segoe UI", 4), bg=BG, fg="#8b949e").pack(anchor="w")
 
     def _lbl_entry(self, parent, label, value, key, show=None):
         row = tk.Frame(parent, bg=BG)
