@@ -114,7 +114,7 @@ def generate_frames(doc_img: Image.Image, total_duration: float, tmp_dir: str):
     for _ in range(end_frames):
         save_frame(bot_frame)
 
-    print(f"\n  ✓ {frame_idx} frames rendered")
+    print(f"\n  [done] {frame_idx} frames rendered")
     return frame_idx
 
 
@@ -144,7 +144,7 @@ def encode_video(tmp_dir: str, audio_path: str, output_path: str):
     if result.returncode != 0:
         print("ffmpeg stderr:", result.stderr[-2000:], flush=True)
         raise RuntimeError("ffmpeg encoding failed")
-    print(f"  ✓ Video saved: {output_path}", flush=True)
+    print(f"  [done] Video saved: {output_path}", flush=True)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -207,7 +207,7 @@ def main():
             ]
             print("\nEncoding video (no audio)...")
             subprocess.run(cmd, check=True, capture_output=True)
-            print(f"  ✓ Video saved: {args.output}")
+            print(f"  [done] Video saved: {args.output}")
 
     size_mb = os.path.getsize(args.output) / 1024 / 1024
     print(f"\n✅ Done!  {args.output}  ({size_mb:.1f} MB)")

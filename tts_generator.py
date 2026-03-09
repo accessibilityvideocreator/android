@@ -739,7 +739,8 @@ class App(tk.Tk):
                "--output",     video_out]
         try:
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                                    stderr=subprocess.STDOUT, text=True, bufsize=1)
+                                    stderr=subprocess.STDOUT, text=True, bufsize=1,
+                                    encoding="utf-8", errors="replace")
             for line in proc.stdout:
                 self._log(f"  {line.rstrip()}")
             proc.wait()
