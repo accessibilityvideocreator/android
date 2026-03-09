@@ -491,8 +491,13 @@ object VideoCreator {
             // Clean up the temp file now that we've copied it
             File(srcPath).delete()
 
-            // Return the friendly public path for display
-            "Movies/TTS Videos/$displayName"
+            // Query the real absolute path so Dart can open it in VLC
+            val absolutePath = resolver.query(
+                uri, arrayOf(MediaStore.Video.Media.DATA), null, null, null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+            absolutePath ?: "/storage/emulated/0/Movies/TTS Videos/$displayName"
         } catch (e: Exception) {
             null   // non-fatal — caller falls back to temp path
         }

@@ -1,7 +1,5 @@
 import 'dart:async';
 import 'dart:io' show Platform, File, FileMode;
-import 'dart:typed_data';
-import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
@@ -12,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'language_helper.dart'; // Import the facade
 import 'elevenlabs_service.dart';
+import 'google_tts_service.dart';
 
 void main() => runApp(const MyApp());
 
@@ -50,10 +49,17 @@ class MyAppState extends State<MyApp> {
 
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
 
+  // TTS service selection: 'elevenlabs' or 'google'
+  String _ttsService = 'elevenlabs';
+
   // ElevenLabs settings
-  String _elApiKey = '';
+  String _elApiKey  = '';
   String _elVoiceId = ElevenLabsService.defaultVoiceId;
-  bool _useElevenLabs = true; // toggle off to use free device TTS while testing
+  bool   _useElevenLabs = true;
+
+  // Google Cloud TTS settings
+  String _googleApiKey    = '';
+  String _googleVoiceName = GoogleTtsService.defaultVoiceName;
 
   TtsState ttsState = TtsState.stopped;
 
@@ -81,9 +87,12 @@ class MyAppState extends State<MyApp> {
   Future<void> _loadElSettings() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
+      _ttsService      = prefs.getString('tts_service') ?? 'elevenlabs';
       _elApiKey        = prefs.getString('el_api_key') ?? '';
       _elVoiceId       = prefs.getString('el_voice_id') ?? ElevenLabsService.defaultVoiceId;
       _useElevenLabs   = prefs.getBool('el_enabled') ?? true;
+      _googleApiKey    = prefs.getString('google_api_key') ?? '';
+      _googleVoiceName = prefs.getString('google_voice_name') ?? GoogleTtsService.defaultVoiceName;
     });
   }
 
@@ -96,6 +105,28 @@ class MyAppState extends State<MyApp> {
       _elApiKey      = apiKey;
       _elVoiceId     = voiceId;
       _useElevenLabs = useEl;
+    });
+  }
+
+  Future<void> _saveTtsSettings({
+    required String service,
+    required String elKey,
+    required String elVoice,
+    required String googleKey,
+    required String googleVoice,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('tts_service',        service);
+    await prefs.setString('el_api_key',         elKey);
+    await prefs.setString('el_voice_id',        elVoice);
+    await prefs.setString('google_api_key',     googleKey);
+    await prefs.setString('google_voice_name',  googleVoice);
+    setState(() {
+      _ttsService      = service;
+      _elApiKey        = elKey;
+      _elVoiceId       = elVoice;
+      _googleApiKey    = googleKey;
+      _googleVoiceName = googleVoice;
     });
   }
 
@@ -398,9 +429,11 @@ class MyAppState extends State<MyApp> {
   }
 
   Future<void> _openElSettings() async {
-    final keyCtrl   = TextEditingController(text: _elApiKey);
-    final voiceCtrl = TextEditingController(text: _elVoiceId);
-    bool  sheetUseEl = _useElevenLabs;
+    final elKeyCtrl      = TextEditingController(text: _elApiKey);
+    final elVoiceCtrl    = TextEditingController(text: _elVoiceId);
+    final gKeyCtrl       = TextEditingController(text: _googleApiKey);
+    final gVoiceCtrl     = TextEditingController(text: _googleVoiceName);
+    String sheetService  = _ttsService;
 
     await showModalBottomSheet(
       context: _navigatorKey.currentContext!,
@@ -412,94 +445,112 @@ class MyAppState extends State<MyApp> {
         builder: (ctx, setSheetState) => SingleChildScrollView(
           padding: EdgeInsets.only(
             left: 24, right: 24, top: 24,
-            bottom: MediaQuery.of(ctx).viewInsets.bottom + 64, // +40px extra clearance
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 64,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('ElevenLabs Settings',
+              const Text('TTS Settings',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 4),
-              const Text(
-                'Get your API key at elevenlabs.io → Profile → API Keys',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
-              ),
               const SizedBox(height: 16),
-              // ── Use ElevenLabs toggle ──────────────────────────────────
-              Container(
-                decoration: BoxDecoration(
-                  color: sheetUseEl
-                      ? Colors.green.withOpacity(0.08)
-                      : Colors.orange.withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: sheetUseEl ? Colors.green : Colors.orange,
-                    width: 1.2,
+
+              // ── Service selector ──────────────────────────────────────
+              SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(
+                    value: 'elevenlabs',
+                    label: Text('ElevenLabs'),
+                    icon: Icon(Icons.graphic_eq),
+                  ),
+                  ButtonSegment(
+                    value: 'google',
+                    label: Text('Google TTS'),
+                    icon: Icon(Icons.cloud),
+                  ),
+                ],
+                selected: {sheetService},
+                onSelectionChanged: (s) =>
+                    setSheetState(() => sheetService = s.first),
+              ),
+              const SizedBox(height: 20),
+
+              // ── ElevenLabs fields ─────────────────────────────────────
+              if (sheetService == 'elevenlabs') ...[
+                const Text(
+                  'Get your API key at elevenlabs.io → Profile → API Keys',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: elKeyCtrl,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: 'API Key',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.key),
                   ),
                 ),
-                child: SwitchListTile(
-                  title: Text(
-                    sheetUseEl ? 'Using ElevenLabs' : 'Using Free Device TTS',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: sheetUseEl ? Colors.green : Colors.orange,
-                    ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: elVoiceCtrl,
+                  decoration: InputDecoration(
+                    labelText: 'Voice ID',
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.record_voice_over),
+                    helperText: 'Default: Rachel (${ElevenLabsService.defaultVoiceId})',
                   ),
-                  subtitle: Text(
-                    sheetUseEl
-                        ? 'High-quality voice (uses credits)'
-                        : 'Free built-in voice — great for testing',
-                    style: const TextStyle(fontSize: 12),
+                ),
+              ],
+
+              // ── Google TTS fields ─────────────────────────────────────
+              if (sheetService == 'google') ...[
+                const Text(
+                  'Get your API key at console.cloud.google.com → Text-to-Speech API',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: gKeyCtrl,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: 'API Key',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.key),
                   ),
-                  value: sheetUseEl,
-                  activeColor: Colors.green,
-                  inactiveThumbColor: Colors.orange,
-                  inactiveTrackColor: Colors.orange.withOpacity(0.3),
-                  onChanged: (val) => setSheetState(() => sheetUseEl = val),
                 ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: keyCtrl,
-                obscureText: true,
-                enabled: sheetUseEl,
-                decoration: const InputDecoration(
-                  labelText: 'API Key',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.key),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: gVoiceCtrl,
+                  decoration: InputDecoration(
+                    labelText: 'Voice Name',
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.record_voice_over),
+                    helperText: 'Default: ${GoogleTtsService.defaultVoiceName}',
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: voiceCtrl,
-                enabled: sheetUseEl,
-                decoration: InputDecoration(
-                  labelText: 'Voice ID',
-                  border: const OutlineInputBorder(),
-                  prefixIcon: const Icon(Icons.record_voice_over),
-                  helperText: 'Default: Rachel (${ElevenLabsService.defaultVoiceId})',
-                ),
-              ),
-              const SizedBox(height: 16),
+              ],
+
+              const SizedBox(height: 20),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: () {
-                    // Strip invisible/non-ASCII chars that break HTTP headers
-                    final key   = keyCtrl.text.replaceAll(RegExp(r'[^\x20-\x7E]'), '').trim();
-                    final voice = voiceCtrl.text.trim().isEmpty
-                        ? ElevenLabsService.defaultVoiceId
-                        : voiceCtrl.text.trim();
-                    _saveElSettings(key, voice, sheetUseEl);
+                    _saveTtsSettings(
+                      service:     sheetService,
+                      elKey:       elKeyCtrl.text.replaceAll(RegExp(r'[^\x20-\x7E]'), '').trim(),
+                      elVoice:     elVoiceCtrl.text.trim().isEmpty
+                          ? ElevenLabsService.defaultVoiceId
+                          : elVoiceCtrl.text.trim(),
+                      googleKey:   gKeyCtrl.text.replaceAll(RegExp(r'[^\x20-\x7E]'), '').trim(),
+                      googleVoice: gVoiceCtrl.text.trim().isEmpty
+                          ? GoogleTtsService.defaultVoiceName
+                          : gVoiceCtrl.text.trim(),
+                    );
                     Navigator.pop(ctx);
-                    if (!sheetUseEl) {
-                      _showSnack('Using free device TTS for testing');
-                    } else if (key.isEmpty) {
-                      _showSnack('API key cleared — using device TTS');
-                    } else {
-                      _showSnack('ElevenLabs enabled ✓');
-                    }
+                    _showSnack(sheetService == 'google'
+                        ? 'Google TTS selected ✓'
+                        : 'ElevenLabs selected ✓');
                   },
                   child: const Text('Save'),
                 ),
@@ -518,34 +569,6 @@ class MyAppState extends State<MyApp> {
         .showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  /// Builds a valid PCM WAV file filled with silence (all zeros).
-  Uint8List _buildSilentWav(int durationSeconds, {int sampleRate = 22050}) {
-    const channels    = 1;
-    const bitsPerSample = 16;
-    final numSamples  = sampleRate * durationSeconds;
-    final dataSize    = numSamples * channels * (bitsPerSample ~/ 8);
-    final buf         = ByteData(44 + dataSize);
-
-    void str(int off, String s) {
-      for (var i = 0; i < s.length; i++) buf.setUint8(off + i, s.codeUnitAt(i));
-    }
-
-    str(0,  'RIFF');
-    buf.setUint32(4,  36 + dataSize, Endian.little);
-    str(8,  'WAVE');
-    str(12, 'fmt ');
-    buf.setUint32(16, 16, Endian.little);           // fmt chunk size
-    buf.setUint16(20, 1,  Endian.little);           // PCM
-    buf.setUint16(22, channels, Endian.little);
-    buf.setUint32(24, sampleRate, Endian.little);
-    buf.setUint32(28, sampleRate * channels * (bitsPerSample ~/ 8), Endian.little);
-    buf.setUint16(32, channels * (bitsPerSample ~/ 8), Endian.little);
-    buf.setUint16(34, bitsPerSample, Endian.little);
-    str(36, 'data');
-    buf.setUint32(40, dataSize, Endian.little);
-    // bytes 44..end are already zero = silence
-    return buf.buffer.asUint8List();
-  }
 
   /// Appends an error to a persistent log file and opens it automatically.
   Future<void> _logAndOpenError(String context, dynamic error, [StackTrace? stack]) async {
@@ -597,41 +620,46 @@ Future<void> _createVideo() async {
       _videoFilePath = null;
     });
 
+    // Check that the selected TTS service is configured
+    final bool usingGoogle  = _ttsService == 'google';
+    final bool hasElKey     = _elApiKey.isNotEmpty;
+    final bool hasGoogleKey = _googleApiKey.isNotEmpty;
+
+    if (usingGoogle && !hasGoogleKey) {
+      _showSnack('Please add a Google TTS API key (tap the gear icon)');
+      setState(() => _isCreatingVideo = false);
+      return;
+    }
+    if (!usingGoogle && !hasElKey) {
+      _showSnack('Please add an ElevenLabs API key (tap the gear icon)');
+      setState(() => _isCreatingVideo = false);
+      return;
+    }
+
     try {
-      // Step 1: Synthesize TTS to an audio file
-      // Use external storage — device TTS engine runs in a separate process
-      // and cannot write to the app's private cache directory.
+      // Step 1: Synthesize speech
       final extDir = await getExternalStorageDirectory();
       final storageDir = extDir ?? await getTemporaryDirectory();
 
-      String audioPath;
-      File audioFile;
+      final audioPath = '${storageDir.path}/tts_audio.mp3';
+      final audioFile = File(audioPath);
+      if (await audioFile.exists()) await audioFile.delete();
 
-      if (_elApiKey.isNotEmpty && _useElevenLabs) {
-        // ElevenLabs writes the file itself — use external storage, MP3 format
-        audioPath = '${storageDir.path}/tts_audio.mp3';
-        audioFile = File(audioPath);
-        if (await audioFile.exists()) await audioFile.delete();
-
+      if (usingGoogle) {
+        _showSnack('Generating audio with Google TTS...');
+        debugPrint('Calling Google TTS API... path: $audioPath');
+        final gTts = GoogleTtsService(
+          apiKey:    _googleApiKey,
+          voiceName: _googleVoiceName,
+        );
+        await gTts.synthesizeToFile(_newVoiceText!, audioPath);
+        debugPrint('Google TTS done. size: ${await audioFile.length()}');
+      } else {
         _showSnack('Generating audio with ElevenLabs...');
         debugPrint('Calling ElevenLabs API... path: $audioPath');
         final el = ElevenLabsService(apiKey: _elApiKey, voiceId: _elVoiceId);
         await el.synthesizeToFile(_newVoiceText!, audioPath);
         debugPrint('ElevenLabs done. size: ${await audioFile.length()}');
-      } else {
-        // Free testing mode — generate a silent WAV locally (no TTS engine needed).
-        // Device TTS synthesizeToFile is unreliable across Android vendors/versions.
-        // Cap at 30 s while debugging so video encodes quickly.
-        const maxTestSeconds = 30;
-        final wordCount = (_newVoiceText ?? '').trim().split(RegExp(r'\s+')).length;
-        // Rough estimate: ~120 words per minute at default speech rate
-        final estimatedSecs = ((wordCount / 120.0) * 60).round().clamp(3, maxTestSeconds);
-
-        audioPath = '${storageDir.path}/tts_audio.wav';
-        audioFile = File(audioPath);
-        _showSnack('Generating silent test audio ($estimatedSecs s)...');
-        debugPrint('Writing silent WAV: $audioPath  duration=${estimatedSecs}s');
-        await audioFile.writeAsBytes(_buildSilentWav(estimatedSecs));
       }
 
       // Step 2: Create output path
@@ -647,14 +675,11 @@ Future<void> _createVideo() async {
         text: _newVoiceText!,
       );
 
-      // publicPath is either "Movies/TTS Videos/filename.mp4" (friendly display)
-      // or the original temp path as fallback
-      final openPath = (publicPath != null && publicPath.startsWith('/'))
-          ? publicPath   // absolute temp path fallback
-          : videoPath;   // open the temp path; MediaStore has the real copy
+      // publicPath is the absolute path returned by Kotlin (from MediaStore or temp fallback)
+      final openPath = publicPath ?? videoPath;
 
-      setState(() => _videoFilePath = publicPath ?? videoPath);
-      _showSnack('Saved to ${publicPath ?? "storage"}  — opening...');
+      setState(() => _videoFilePath = openPath);
+      _showSnack('Saved to Movies/TTS Videos — opening...');
       await flutterTts.speak('Your video is ready');
       await OpenFilex.open(openPath);
     } catch (e, stack) {
@@ -702,7 +727,7 @@ Future<void> _createVideo() async {
               icon: Stack(
                 children: [
                   const Icon(Icons.settings),
-                  if (_elApiKey.isNotEmpty)
+                  if (_elApiKey.isNotEmpty || _googleApiKey.isNotEmpty)
                     Positioned(
                       right: 0,
                       top: 0,
@@ -710,8 +735,10 @@ Future<void> _createVideo() async {
                         width: 8,
                         height: 8,
                         decoration: BoxDecoration(
-                          // green = ElevenLabs active, orange = key saved but disabled
-                          color: _useElevenLabs ? Colors.green : Colors.orange,
+                          // green = service configured, blue = Google TTS
+                          color: _ttsService == 'google'
+                              ? Colors.blue
+                              : Colors.green,
                           shape: BoxShape.circle,
                         ),
                       ),

@@ -1,0 +1,77 @@
+Accessibility Video Creator for Android. How the Code Works.
+
+This app takes text — typed, pasted, or dictated — and produces a narrated video. The text scrolls smoothly on screen, line by line, with the currently spoken line highlighted, like a teleprompter that also has audio. It is built with Flutter for the user interface and a native Kotlin engine for video creation.
+
+High-Level Architecture.
+
+The app has two separate layers that communicate over a Flutter Method Channel.
+
+The first layer is Dart and Flutter, which handles the user interface, calls the text-to-speech cloud API, and passes the audio file path and text to the native layer.
+
+The second layer is Kotlin running on Android, which receives those paths, renders every line of text as a video frame, transcodes the audio to AAC, mixes everything into an MP4 file, and saves it to a public folder on the device.
+
+Step by Step: What Happens When You Tap Create Video.
+
+Step 1 — Text to Speech.
+
+Depending on which TTS service is selected in settings, one of two cloud APIs is called.
+
+If ElevenLabs is selected, the app sends the text to the ElevenLabs API using the eleven multilingual v2 model with the Rachel voice by default. The response is raw MP3 audio bytes, which are written directly to a temporary file called tts audio dot mp3.
+
+If Google Cloud TTS is selected, the app sends the text to the Google Text-to-Speech API. The response contains the audio encoded as a Base64 string, which the app decodes and writes to the same tts audio dot mp3 file.
+
+Both services produce the same output: an MP3 file stored on the device's external storage.
+
+Step 2 — Video Creation in Kotlin.
+
+Once the audio file is ready, the Dart code calls across the Method Channel to the native Kotlin layer, passing the audio path, the desired video output path, and the full text.
+
+The Kotlin Video Creator function then does four things in sequence.
+
+Part A — Sentence Splitting and Layout.
+
+The text is split into sentences by breaking on periods, exclamation points, or question marks followed by whitespace. Each sentence is then word-wrapped to fit within 82 percent of the 1080-pixel frame width. This produces a full virtual canvas: a list of every line of text with its vertical position, measured as if the entire text were printed on an infinitely tall page.
+
+Part B — Scroll Target Calculation.
+
+For smooth line-by-line scrolling, the app calculates a scroll target for every line. This is the vertical offset needed to center that line on the 1920-pixel screen. The first lines are clamped so there is no blank space at the top. The total video duration is derived from the audio file's duration metadata, ensuring the video and audio are exactly the same length.
+
+Part C — H.264 Video Encoding.
+
+The video is encoded at 1080 by 1920 pixels in portrait orientation, at 24 frames per second, at 2 megabits per second. For each frame, the app determines which line is currently active based on the frame index, interpolates the scroll position using a cosine ease-in and ease-out curve during the 0.3-second transition between lines, renders a bitmap using Android's Canvas API with a black background, all visible lines drawn in white text, and a dark grey rounded rectangle behind the currently active line, converts the bitmap from ARGB to NV12 color format which is what the hardware encoder expects, and feeds the NV12 bytes into a MediaCodec H.264 encoder.
+
+Part D — Audio Transcoding.
+
+The input MP3 goes through a two-phase transcode pipeline. In phase 1, a MediaCodec decoder converts the compressed MP3 into raw 16-bit PCM bytes. In phase 2, the PCM bytes are fed into a MediaCodec AAC-LC encoder. The output is a list of AAC audio samples with presentation timestamps.
+
+Part E — Muxing and Saving.
+
+MediaMuxer combines the H.264 video samples and AAC audio samples into a single MP4 file. The finished file is then copied into Android's public Movies slash TTS Videos folder using the MediaStore API. This is required for Android 10 and above due to scoped storage restrictions. The absolute path of the new file is returned to the Dart layer so the video can be opened immediately in the default video player.
+
+File Structure.
+
+The project contains a lib folder with four Dart files: main dot dart for the UI, state, and TTS orchestration; elevenlabs service dot dart for the ElevenLabs REST API client; google tts service dot dart for the Google Cloud TTS REST API client; and video creator channel dot dart which is the Flutter to Kotlin Method Channel bridge. The Android-specific code lives in MainActivity dot kt, which contains the H.264 and AAC encoder, the MediaMuxer, and the MediaStore save logic.
+
+Key Design Decisions.
+
+Why native Kotlin for video? Flutter has no built-in video encoding API. Android's MediaCodec and MediaMuxer are the lowest-level and most performant tools available. Doing this in Dart or FFI would be far more complex.
+
+Why cloud TTS instead of device TTS? Android's built-in text-to-speech synthesize-to-file function runs in a separate process and is unreliable across manufacturers, particularly on Samsung devices where it frequently times out or writes to inaccessible paths. Cloud APIs from ElevenLabs and Google TTS are consistent and return high-quality audio every time.
+
+Why MediaStore instead of writing directly to the SD card? Android 10 and above blocks direct writes to public directories through scoped storage. MediaStore is the official API for saving to shared storage and ensures the file appears in gallery apps and file managers without requiring extra permissions.
+
+Why NV12 for video frames? Android's MediaCodec H.264 encoder expects the YUV color space, not ARGB. NV12, a packed YUV 4:2:0 format, is the most widely supported color format across Android devices. The conversion is done in software per-frame using the standard BT.601 matrix.
+
+Settings.
+
+Settings are persisted in Shared Preferences. The TTS service setting stores either elevenlabs or google. The ElevenLabs API key and voice ID are stored separately. The Google API key and voice name are also stored. The default ElevenLabs voice is Rachel. The default Google voice is en-US-Neural2-F.
+
+Getting Started.
+
+Prerequisites are Flutter SDK, Android Studio for the Android SDK and build tools, and either an ElevenLabs API key from elevenlabs dot io or a Google Cloud TTS API key from the Google Cloud console.
+
+To build and run the app, navigate to the example folder, run flutter build apk release, and then install the APK using adb install.
+
+To configure TTS, tap the gear icon in the top-right corner, select your TTS service, enter your API key, and tap Save.
+
+To create a video, type, paste, or dictate your text into the input field, then tap Create Video. The video is saved to Movies slash TTS Videos on your device and opens automatically in your default video player.
