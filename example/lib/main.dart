@@ -53,6 +53,9 @@ class MyAppState extends State<MyApp> {
   // TTS service selection: 'elevenlabs' or 'google'
   String _ttsService = 'elevenlabs';
 
+  // Main text input controller (needed so we can pre-fill from bundled asset)
+  final TextEditingController _textInputCtrl = TextEditingController();
+
   // Image scroll mode: when true, shows the doc image scrolling instead of text
   bool   _imageScrollMode = false;
   final  TextEditingController _imagePathCtrl = TextEditingController();
@@ -95,26 +98,35 @@ class MyAppState extends State<MyApp> {
     _extractBundledAssets();
   }
 
-  /// Copies bundled assets (PNG screenshot) from the APK to external storage
-  /// once, so Kotlin can load them as regular file paths.
+  /// Copies bundled assets (PNG + narration text) from the APK to external
+  /// storage, and pre-fills the text box and image path on first launch.
   Future<void> _extractBundledAssets() async {
     if (!isAndroid) return;
     try {
       final extDir = await getExternalStorageDirectory()
           ?? await getTemporaryDirectory();
-      final destPath = '${extDir.path}/HOW_IT_WORKS_screenshot.png';
-      final destFile = File(destPath);
-      // Only extract if not already present (avoids overwriting on every launch)
-      if (!await destFile.exists()) {
+
+      // ── Extract screenshot PNG ────────────────────────────────────────────
+      final pngPath = '${extDir.path}/HOW_IT_WORKS_screenshot.png';
+      final pngFile = File(pngPath);
+      if (!await pngFile.exists()) {
         final bytes = await rootBundle.load('assets/HOW_IT_WORKS_screenshot.png');
-        await destFile.writeAsBytes(bytes.buffer.asUint8List());
-        debugPrint('Asset extracted to: $destPath');
+        await pngFile.writeAsBytes(bytes.buffer.asUint8List());
+        debugPrint('PNG extracted to: $pngPath');
       }
+
+      // ── Load narration text into the text field ───────────────────────────
+      final narration = await rootBundle.loadString('assets/HOW_IT_WORKS_narration.txt');
+
       setState(() {
-        _extractedAssetImagePath = destPath;
-        // Auto-fill the path field so the user sees it immediately
+        _extractedAssetImagePath = pngPath;
         if (_imagePathCtrl.text.isEmpty) {
-          _imagePathCtrl.text = destPath;
+          _imagePathCtrl.text = pngPath;
+        }
+        // Pre-fill text box only if the user hasn't typed anything yet
+        if (_newVoiceText == null || _newVoiceText!.trim().isEmpty) {
+          _newVoiceText = narration;
+          _textInputCtrl.text = narration;
         }
       });
     } catch (e) {
@@ -1027,6 +1039,7 @@ Future<void> _createVideo() async {
       alignment: Alignment.topCenter,
       padding: const EdgeInsets.only(top: 25.0, left: 25.0, right: 25.0),
       child: TextField(
+        controller: _textInputCtrl,
         maxLines: 11,
         minLines: 6,
         onChanged: (String value) {

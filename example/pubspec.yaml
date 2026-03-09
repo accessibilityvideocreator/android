@@ -72,6 +72,7 @@ flutter:
   # Assets bundled with the APK
   assets:
     - assets/HOW_IT_WORKS_screenshot.png
+    - assets/HOW_IT_WORKS_narration.txt
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
