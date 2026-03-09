@@ -42,7 +42,7 @@ DEFAULT_CFG = {
     "el_api_key":     "",
     "el_voice_id":    "21m00Tcm4TlvDq8ikWAM",   # Rachel
     "google_api_key": "",
-    "google_voice":   "en-US-Neural2-F",
+    "google_voice":   "en-US-Standard-B",
     "output_dir":     str(pathlib.Path.home() / "Downloads"),
 }
 
@@ -125,7 +125,7 @@ def synthesize_system_tts(text: str, out_path: str, log_fn=None):
     if log_fn: log_fn(f"  ✓ WAV saved: {out_path}")
 
 
-def _chunk_text(text: str, max_chars: int = 4800) -> list:
+def _chunk_text(text: str, max_chars: int = 4999) -> list:
     """
     Split text into chunks ≤ max_chars, breaking on sentence boundaries.
     Google TTS has a 5000-byte limit per request; we use 4800 to be safe.
@@ -437,7 +437,7 @@ class App(tk.Tk):
                             self.cfg.get("google_voice", DEFAULT_CFG["google_voice"]),
                             "google_voice")
             tk.Label(self.settings_frame,
-                     text="Get key at console.cloud.google.com  ·  Long texts are auto-split into chunks.",
+                     text="Get key at console.cloud.google.com  ·  Long texts auto-split at 4999 chars.",
                      font=("Segoe UI", 8), bg=BG, fg="#8b949e").pack(anchor="w")
 
     def _lbl_entry(self, parent, label, value, key, show=None):

@@ -7,7 +7,7 @@ class GoogleTtsService {
   final String voiceName;
   final String languageCode;
 
-  static const defaultVoiceName    = 'en-US-Neural2-F';
+  static const defaultVoiceName    = 'en-US-Standard-B';
   static const defaultLanguageCode = 'en-US';
 
   GoogleTtsService({
