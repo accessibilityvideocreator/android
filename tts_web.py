@@ -461,9 +461,13 @@ HTML = r"""<!DOCTYPE html>
       </div>
       <div>
         <label>Screenshot PNG (for video generation)</label>
-        <div class="row">
-          <input type="text" id="png-path" placeholder="Path to HOW_IT_WORKS_screenshot.png">
+        <div class="row" style="align-items:center;gap:12px">
+          <button class="btn-secondary" onclick="document.getElementById('png-file-input').click()" style="flex:0 0 auto">
+            📂&nbsp; Upload Screenshot PNG
+          </button>
+          <span id="png-filename" style="font-size:13px;color:var(--fg2)">No file selected</span>
         </div>
+        <input type="file" id="png-file-input" accept="image/png,image/*" style="display:none" onchange="uploadScreenshot(this)">
       </div>
     </div>
   </div>
@@ -522,7 +526,11 @@ async function init() {
   document.getElementById("g-key").value    = cfg.google_api_key || "";
   document.getElementById("g-voice").value  = cfg.google_voice  || "";
   document.getElementById("out-dir").value  = cfg.output_dir   || "";
-  document.getElementById("png-path").value = cfg.png_path     || "";
+  if (cfg.png_path) {
+    window._pngServerPath = cfg.png_path;
+    document.getElementById("png-filename").textContent = cfg.png_path.split(/[\\/]/).pop();
+    document.getElementById("png-filename").style.color = "var(--accent)";
+  }
   setSvc(cfg.service || "system", false);
   // Load narration if available
   const nr = await fetch("/api/narration");
@@ -606,11 +614,36 @@ async function uploadOcr(input) {
   input.value = "";
 }
 
+// ── Screenshot upload ──────────────────────────────────────────────────────
+async function uploadScreenshot(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const label = document.getElementById("png-filename");
+  label.textContent = "Uploading...";
+  label.style.color = "var(--fg2)";
+  const fd = new FormData();
+  fd.append("screenshot", file);
+  const r = await fetch("/api/upload-screenshot", {method:"POST", body: fd});
+  const d = await r.json();
+  if (d.ok) {
+    window._pngServerPath = d.path;
+    label.textContent = file.name + "  ✓";
+    label.style.color = "var(--accent)";
+    saveSetting("png_path", d.path);
+    appendLog("Screenshot uploaded: " + d.path, "ok");
+  } else {
+    label.textContent = "Upload failed";
+    label.style.color = "var(--red)";
+    toast("Upload failed: " + d.error, "error");
+  }
+  input.value = "";
+}
+
 // ── Generate ──────────────────────────────────────────────────────────────
 async function generate(makeVideo) {
   const text = document.getElementById("text-input").value.trim();
   if (!text) { toast("Please enter some text first.", "error"); return; }
-  const pngPath = document.getElementById("png-path").value.trim();
+  const pngPath = window._pngServerPath || "";
   if (makeVideo && !pngPath) { toast("Please enter the screenshot PNG path.", "error"); return; }
   setBusy(true);
   document.getElementById("status-msg").textContent = makeVideo ? "Generating audio + video..." : "Generating audio...";
@@ -775,6 +808,9 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/ocr":
             self._handle_ocr()
 
+        elif path == "/api/upload-screenshot":
+            self._handle_screenshot_upload()
+
         elif path == "/api/generate":
             data = json.loads(self._read_body())
             # Run in thread so we don't block the server
@@ -798,6 +834,32 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.send_response(404)
             self.end_headers()
+
+    def _handle_screenshot_upload(self):
+        ctype = self.headers.get("Content-Type", "")
+        if "multipart/form-data" not in ctype:
+            self._send_json({"ok": False, "error": "Expected multipart"}, 400)
+            return
+        boundary = ctype.split("boundary=")[-1].strip().encode()
+        body = self._read_body()
+        img_bytes = None
+        for part in body.split(b"--" + boundary):
+            if b"Content-Disposition" in part and b'name="screenshot"' in part:
+                header_end = part.find(b"\r\n\r\n")
+                if header_end != -1:
+                    img_bytes = part[header_end+4:].rstrip(b"\r\n--")
+        if img_bytes is None:
+            self._send_json({"ok": False, "error": "No file data found"}, 400)
+            return
+        save_path = str(SCRIPT_DIR / "uploaded_screenshot.png")
+        try:
+            with open(save_path, "wb") as f:
+                f.write(img_bytes)
+            size_kb = len(img_bytes) // 1024
+            _push_log(f"Screenshot saved: {save_path}  ({size_kb} KB)", "ok")
+            self._send_json({"ok": True, "path": save_path})
+        except Exception as e:
+            self._send_json({"ok": False, "error": str(e)}, 500)
 
     def _handle_ocr(self):
         ctype = self.headers.get("Content-Type", "")
