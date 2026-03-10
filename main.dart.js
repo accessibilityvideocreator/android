@@ -23751,7 +23751,7 @@ _.k2=""
 _.k3="21m00Tcm4TlvDq8ikWAM"
 _.k4=!0
 _.ok=""
-_.p1="en-US-Neural2-F"
+_.p1="en-US-Standard-B"
 _.c=_.a=null},
 a6g:function a6g(a){this.a=a},
 a60:function a60(a,b){this.a=a
@@ -80439,7 +80439,7 @@ s.k4=p!==!1
 p=A.c7(q.h(r,"google_api_key"))
 s.ok=p==null?"":p
 r=A.c7(q.h(r,"google_voice_name"))
-s.p1=r==null?"en-US-Neural2-F":r},
+s.p1=r==null?"en-US-Standard-B":r},
 $S:0}
 A.a6c.prototype={
 $0(){var s=this,r=s.a
@@ -80513,7 +80513,7 @@ $S:482}
 A.a65.prototype={
 $2(a,b){var s=this,r=null,q=A.bx(a,r,t.w).w,p=s.a,o=t.E,n=A.c([B.Sq,B.N5,new A.rK(B.Fa,A.bP([p.a],t.N),new A.a63(p,b),r,t.eP),B.yk],o)
 if(p.a==="elevenlabs")B.b.U(n,A.c([B.Ss,B.hJ,A.LN(s.c,B.n9,1,r,!0,r,r),B.hJ,A.LN(s.d,A.apg(r,B.ke,r,r,r,r,r,r,!0,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,"Default: Rachel (21m00Tcm4TlvDq8ikWAM)",r,r,r,r,r,r,r,r,r,r,r,r,r,"Voice ID",!0,!0,!1,r,B.n7,r,r,r,r,r,r,r,r,r,r,r,r),1,r,!1,r,r)],o))
-if(p.a==="google")B.b.U(n,A.c([B.St,B.hJ,A.LN(s.e,B.n9,1,r,!0,r,r),B.hJ,A.LN(s.f,A.apg(r,B.ke,r,r,r,r,r,r,!0,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,"Default: en-US-Neural2-F",r,r,r,r,r,r,r,r,r,r,r,r,r,"Voice Name",!0,!0,!1,r,B.n7,r,r,r,r,r,r,r,r,r,r,r,r),1,r,!1,r,r)],o))
+if(p.a==="google")B.b.U(n,A.c([B.St,B.hJ,A.LN(s.e,B.n9,1,r,!0,r,r),B.hJ,A.LN(s.f,A.apg(r,B.ke,r,r,r,r,r,r,!0,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,"Default: en-US-Standard-B",r,r,r,r,r,r,r,r,r,r,r,r,r,"Voice Name",!0,!0,!1,r,B.n7,r,r,r,r,r,r,r,r,r,r,r,r),1,r,!1,r,r)],o))
 n.push(B.yk)
 n.push(A.fN(A.aCC(B.Sp,new A.a64(p,s.b,s.c,s.d,s.e,s.f,a)),r,1/0))
 return A.auJ(A.vQ(n,B.bK,B.bd,B.cC),new A.aO(24,24,24,q.f.d+64),B.am)},
@@ -80534,7 +80534,7 @@ s=q.e.a.a
 r=A.fh(p,!0,!1)
 s=B.d.ja(A.ao7(s,r,""))
 r=B.d.ja(q.f.a.a)
-o.ki(l,k,s,r.length===0?"en-US-Neural2-F":r,m)
+o.ki(l,k,s,r.length===0?"en-US-Standard-B":r,m)
 A.y7(q.r,!1).H1(null)
 o.acu(n.a==="google"?"Google TTS selected \u2713":"ElevenLabs selected \u2713")},
 $S:0}
