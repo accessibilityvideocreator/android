@@ -25,7 +25,7 @@ import struct
 
 from PIL import Image
 
-# ── Config ────────────────────────────────────────────────────────────────────
+# -- Config --------------------------------------------------------------------
 OUT_W, OUT_H = 1080, 1920   # output video dimensions (portrait)
 FPS          = 24
 TITLE_HOLD   = 1.5          # seconds to hold on very top before scrolling
@@ -35,7 +35,7 @@ SCREENSHOT   = os.path.join(os.path.dirname(__file__), "HOW_IT_WORKS_screenshot.
 OUTPUT_VIDEO = os.path.join(os.path.dirname(__file__), "doc_video.mp4")
 
 
-# ── Audio helpers ──────────────────────────────────────────────────────────────
+# -- Audio helpers --------------------------------------------------------------
 def get_audio_duration_seconds(audio_path: str) -> float:
     """Use ffprobe to get duration of any audio file."""
     result = subprocess.run(
@@ -49,14 +49,14 @@ def get_audio_duration_seconds(audio_path: str) -> float:
         raise RuntimeError(f"Could not determine audio duration for: {audio_path}\n{result.stderr}")
 
 
-# ── Frame generator ───────────────────────────────────────────────────────────
+# -- Frame generator -----------------------------------------------------------
 def ease_in_out(t: float) -> float:
-    """Cosine ease-in/out: smooth S-curve from 0→1."""
+    """Cosine ease-in/out: smooth S-curve from 0->1."""
     return (1.0 - math.cos(t * math.pi)) / 2.0
 
 
 def crop_frame(doc_img: Image.Image, scroll_y: float) -> Image.Image:
-    """Crop a 1080×1920 slice from the tall doc image at vertical offset scroll_y."""
+    """Crop a 1080x1920 slice from the tall doc image at vertical offset scroll_y."""
     y0 = int(round(scroll_y))
     y1 = y0 + OUT_H
     # Handle case where doc is shorter than the output window (shouldn't happen)
@@ -82,7 +82,7 @@ def generate_frames(doc_img: Image.Image, total_duration: float, tmp_dir: str):
 
     max_scroll    = max(0, doc_img.height - OUT_H)
 
-    print(f"  Doc image:    {doc_img.width}×{doc_img.height}px")
+    print(f"  Doc image:    {doc_img.width}x{doc_img.height}px")
     print(f"  Total frames: {total_frames}  ({total_duration:.1f}s @ {FPS}fps)")
     print(f"  Max scroll:   {max_scroll}px")
 
@@ -97,19 +97,19 @@ def generate_frames(doc_img: Image.Image, total_duration: float, tmp_dir: str):
             pct = frame_idx / total_frames * 100
             print(f"    rendered {frame_idx}/{total_frames} frames ({pct:.0f}%)", flush=True)
 
-    # — Title hold (scroll_y = 0) ——————————————————————————————————————
+    # - Title hold (scroll_y = 0) --------------------------------------
     top_frame = crop_frame(doc_img, 0)
     for _ in range(title_frames):
         save_frame(top_frame)
 
-    # — Scroll ——————————————————————————————————————————————————————————
+    # - Scroll ----------------------------------------------------------
     for i in range(scroll_frames):
-        t = i / scroll_frames               # 0 → 1
+        t = i / scroll_frames               # 0 -> 1
         eased = ease_in_out(t)
         scroll_y = eased * max_scroll
         save_frame(crop_frame(doc_img, scroll_y))
 
-    # — End hold (scroll_y = max_scroll) ————————————————————————————————
+    # - End hold (scroll_y = max_scroll) --------------------------------
     bot_frame = crop_frame(doc_img, max_scroll)
     for _ in range(end_frames):
         save_frame(bot_frame)
@@ -118,7 +118,7 @@ def generate_frames(doc_img: Image.Image, total_duration: float, tmp_dir: str):
     return frame_idx
 
 
-# ── Encode ────────────────────────────────────────────────────────────────────
+# -- Encode --------------------------------------------------------------------
 def encode_video(tmp_dir: str, audio_path: str, output_path: str):
     """Use ffmpeg to encode PNG frames + audio into MP4."""
     frame_pattern = os.path.join(tmp_dir, "frame_%06d.png")
@@ -147,7 +147,7 @@ def encode_video(tmp_dir: str, audio_path: str, output_path: str):
     print(f"  [done] Video saved: {output_path}", flush=True)
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# -- Main ----------------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser(description="Scroll a tall PNG image into a portrait MP4 with audio.")
     parser.add_argument("--audio",      default=None, help="Path to MP3/WAV audio file (narration)")
@@ -175,7 +175,7 @@ def main():
         print(f"  Audio duration: {duration:.2f}s")
     else:
         duration = 60.0
-        print(f"No audio provided — using default duration of {duration}s")
+        print(f"No audio provided - using default duration of {duration}s")
 
     # Load doc image
     print(f"\nLoading screenshot: {args.screenshot}")
@@ -184,7 +184,7 @@ def main():
     if doc_img.width != OUT_W:
         new_h = int(doc_img.height * OUT_W / doc_img.width)
         doc_img = doc_img.resize((OUT_W, new_h), Image.LANCZOS)
-        print(f"  Resized to {doc_img.width}×{doc_img.height}")
+        print(f"  Resized to {doc_img.width}x{doc_img.height}")
 
     # Render frames
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -210,7 +210,7 @@ def main():
             print(f"  [done] Video saved: {args.output}")
 
     size_mb = os.path.getsize(args.output) / 1024 / 1024
-    print(f"\n✅ Done!  {args.output}  ({size_mb:.1f} MB)")
+    print(f"\n[DONE] Done!  {args.output}  ({size_mb:.1f} MB)")
     print(f"\nTo copy to phone:")
     print(f"  adb push \"{args.output}\" /sdcard/Movies/TTS\\ Videos/")
 
