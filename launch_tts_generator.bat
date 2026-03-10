@@ -18,25 +18,15 @@ echo Python found:
 python --version
 echo.
 
-REM ── Check tkinter (built into Python but sometimes missing) ───────────────
-python -c "import tkinter" >nul 2>&1
-if errorlevel 1 (
-    echo  ERROR: tkinter is not available in your Python install.
-    echo  On Windows this is rare - try reinstalling Python from python.org
-    echo  and check "tcl/tk and IDLE" during the install.
-    echo.
-    pause
-    exit /b 1
-)
-
-REM ── pyttsx3 is optional (for offline TTS) — app handles missing install ──
-REM    python -m pip install pyttsx3
-
-REM ── Launch the app ─────────────────────────────────────────────────────────
-echo Launching TTS Generator...
-python tts_generator.py
+REM ── Launch web app (opens automatically in your browser) ──────────────────
+echo Starting TTS Generator web interface...
+echo Your browser will open automatically at http://127.0.0.1:8765
+echo.
+echo Press Ctrl+C here (or close this window) to stop the server.
+echo.
+python tts_web.py
 if errorlevel 1 (
     echo.
-    echo  The app exited with an error. Details above.
+    echo  The server exited with an error. Details above.
     pause
 )
